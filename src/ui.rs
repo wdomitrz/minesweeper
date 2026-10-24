@@ -19,18 +19,18 @@
 //! * **The clock redraws the clock.** A second passing changes one line, so
 //!   [`App::tick`] paints the facts and leaves the board alone.
 
-use std::cell::{Cell as JsCell, RefCell};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{
-    Document, Element, Event, HtmlButtonElement, HtmlSelectElement, KeyboardEvent, Storage,
-    StorageManager, Window,
+    Document, Element, Event, HtmlButtonElement, HtmlSelectElement, KeyboardEvent, PointerEvent,
+    Storage, StorageManager, Window,
 };
 
-use crate::game::{Game, Report, Status, STORAGE_KEY};
+use crate::game::{Cell as Square, Game, Report, Status, STORAGE_KEY};
 use crate::minefield::Level;
 
 /// The app's whole mutable state, and the element handles it writes through.
@@ -51,6 +51,36 @@ const SCOPE: &str = "./";
 /// How often the clock is checked. It is a check, not a tick: the elapsed time
 /// comes from the wall clock, so a tab the browser throttled still catches up.
 const TICK_MS: i32 = 1_000;
+
+/// How long a press has to last to count as a long press, in milliseconds.
+///
+/// 450 is the usual bar: comfortably longer than a tap (which is over in well
+/// under 200ms even when deliberate) and short enough that a reader who is
+/// holding on purpose does not think it failed. The other half of recognising a
+/// long press is what it must *not* be: a scroll, a drag, or a press that ends
+/// before the timer fires.
+const LONG_PRESS_MS: i32 = 450;
+
+/// How long after a long press the browser's trailing events are ignored, in
+/// milliseconds.
+///
+/// Longer than the gap between the press and the `click` on release, and longer
+/// than Android's own `contextmenu` delay, with room for a laggy device. Too long
+/// only means a deliberate tap immediately after a long press is dropped, which
+/// is not a gesture anyone makes on purpose.
+const SUPPRESS_MS: i32 = 700;
+
+/// Above this many squares, a board is drawn dense: no lighting per square and a
+/// one-pixel gap, because the alternative is 9801 little raised buttons which
+/// reads as woven fabric rather than as a board.
+const DENSE_CELLS: usize = 2_000;
+
+/// How far a finger may drift, in CSS pixels, before a press stops being a press.
+///
+/// A thumb resting on a square moves a little; a finger that is scrolling moves
+/// a lot. This is the line between the two, and it is generous enough that a
+/// press does not fail for being held by a human being.
+const PRESS_SLOP_PX: f64 = 10.0;
 
 /// Start the app.
 ///
@@ -98,24 +128,42 @@ struct App {
     window: Window,
     document: Document,
     game: Game,
-    /// One button per square, in board order. Rebuilt when the level changes,
-    /// which is the only time the count changes.
-    cells: Vec<HtmlButtonElement>,
-    /// The glyph element inside each button, written to separately from the
-    /// button's own text so the spoken name never picks it up.
-    faces: Vec<Element>,
-    /// The hidden element holding each square's spoken name.
-    labels: Vec<Element>,
+    /// The board element, which is every square's parent.
+    ///
+    /// There is deliberately no `Vec` of ten thousand button handles. A board
+    /// can be 99 squares square, and holding three element handles per square —
+    /// the button, its glyph and its spoken name — costs more to build than the
+    /// board itself does. A square is looked up by its index when something
+    /// about it changes, which for one click is a handful of squares and for a
+    /// flood is the ones that opened.
+    board: Option<Element>,
     /// The classes last written to each square, so a render can skip the ones
     /// that did not change: opening one square must not rewrite 480 of them.
+    /// The glyph and the spoken name are derived from this string, so this one
+    /// cache covers all three.
     shown: Vec<String>,
+    /// Which square currently carries the tab stop, so a repaint moves it only
+    /// when it moved.
+    shown_focus: Option<usize>,
     /// The square the arrow keys move from. Only one square is in the tab
     /// order at a time, or a keyboard reader would have to tab 480 times.
     focused: usize,
     /// Whether the next tap marks a square instead of opening it.
     flag_mode: bool,
     /// The wall clock reading at the previous tick, in milliseconds.
-    last_tick: JsCell<f64>,
+    last_tick: Cell<f64>,
+    /// The press in progress: the square it started on, where the finger was,
+    /// and the timer that would make it a long press.
+    press: Cell<Option<Press>>,
+    /// When the last long press finished, as a wall-clock time.
+    ///
+    /// A long press does its own work, and the browser then sends more events
+    /// for the same gesture: a `click` on release, and — on Android — a
+    /// `contextmenu` about half a second in. Both would do the *other* action,
+    /// so both are ignored while this time has not passed. A time rather than a
+    /// flag because the two arrive in an order that is not the same on every
+    /// platform, and a flag consumed by the first would let the second through.
+    long_press_until: Cell<f64>,
     /// Seconds the clock has measured but not yet handed to the game.
     ///
     /// An interval fires *approximately* every second, so the delta is as often
@@ -125,7 +173,7 @@ struct App {
     /// machine, whose timers run a shade early, the game showed 00:00 forever.
     /// The remainder is carried instead, so tiny early and late ticks average
     /// out to the right number of seconds.
-    pending: JsCell<f64>,
+    pending: Cell<f64>,
 }
 
 impl App {
@@ -137,14 +185,15 @@ impl App {
             window: window.clone(),
             document: document.clone(),
             game,
-            cells: Vec::new(),
-            faces: Vec::new(),
-            labels: Vec::new(),
+            board: None,
             shown: Vec::new(),
+            shown_focus: None,
             focused: 0,
             flag_mode: false,
-            last_tick: JsCell::new(js_sys::Date::now()),
-            pending: JsCell::new(0.0),
+            last_tick: Cell::new(js_sys::Date::now()),
+            pending: Cell::new(0.0),
+            press: Cell::new(None),
+            long_press_until: Cell::new(0.0),
         };
         app.build_board()?;
         Ok(app)
@@ -152,50 +201,48 @@ impl App {
 
     /// Make one button per square, replacing whatever the previous board left.
     ///
-    /// A board, rather than an update in place, because the number of squares
-    /// depends on the level and a level change is exactly when this runs.
+    /// The board is built as **one HTML string** and parsed once, rather than
+    /// element by element. Appending ten thousand buttons one at a time took 17
+    /// seconds on this machine for the biggest board — every `append_child` on a
+    /// live element invalidates style and layout for the whole board — and a
+    /// document fragment alone only brought it to five. A single `innerHTML` is
+    /// parsed natively and takes a fraction of a second.
+    ///
+    /// The markup is generated from [`Game::cells`], the same source the paint
+    /// uses, so what the string says and what a repaint would write cannot
+    /// drift: the first paint after this is a no-op, by construction.
+    ///
+    /// Nothing a reader typed reaches this string — it is digits, fixed class
+    /// names and fixed words — which is why it needs no escaping.
     fn build_board(&mut self) -> Result<(), JsValue> {
         let board =
             element(&self.document, "board").ok_or_else(|| JsValue::from_str("no #board"))?;
-        board.set_inner_html("");
         let level = self.game.level();
         board.set_attribute(
             "style",
             &format!("--cols:{};--rows:{}", level.width(), level.height()),
         )?;
-
-        self.cells.clear();
-        self.faces.clear();
-        self.labels.clear();
-        self.shown.clear();
-        self.focused = 0;
-
-        for index in 0..level.cells() {
-            let button = self
-                .document
-                .create_element("button")?
-                .dyn_into::<HtmlButtonElement>()?;
-            button.set_attribute("type", "button")?;
-            button.set_attribute("data-index", &index.to_string())?;
-
-            // The glyph is hidden from the accessible name and the spoken name
-            // carries the position instead: a button whose name is "3" says
-            // nothing about which of 480 squares it is.
-            let face = self.document.create_element("span")?;
-            face.set_class_name("face");
-            face.set_attribute("aria-hidden", "true")?;
-            let label = self.document.create_element("span")?;
-            label.set_class_name("visually-hidden");
-
-            button.append_child(&face)?;
-            button.append_child(&label)?;
-            board.append_child(&button)?;
-
-            self.cells.push(button);
-            self.faces.push(face);
-            self.labels.push(label);
-            self.shown.push(String::new());
+        // A board this size is drawn dense: smaller squares, a smaller gap, and
+        // no per-square lighting, because 9801 gradients is a texture rather
+        // than a set of buttons. The flag is the level's own property, not a
+        // measurement of the screen: the same level looks the same everywhere.
+        if level.cells() > DENSE_CELLS {
+            board.set_attribute("data-dense", "true")?;
+        } else {
+            board.remove_attribute("data-dense")?;
         }
+
+        let cells = self.game.cells();
+        board.set_inner_html(&board_html(&cells)?);
+
+        // The cache is primed with exactly what was just written, so the first
+        // paint finds nothing to do. A board restored from a saved game comes
+        // back with its flags and open squares already on it, for the same
+        // reason: the markup is the game's own state, not a fresh blank board.
+        self.shown = cells.iter().map(Square::classes).collect();
+        self.shown_focus = None;
+        self.focused = 0;
+        self.board = Some(board);
         Ok(())
     }
 
@@ -206,11 +253,22 @@ impl App {
         self.paint_tools();
     }
 
-    /// Paint every square: its classes, its glyph, its spoken name and whether
-    /// it is the one in the tab order.
+    /// The button for one square, looked up when it is needed.
+    fn button(&self, index: usize) -> Option<HtmlButtonElement> {
+        let index = u32::try_from(index).ok()?;
+        self.board.as_ref()?.children().item(index)?.dyn_into().ok()
+    }
+
+    /// Paint every square whose appearance changed, and the tab stop.
+    ///
+    /// The class string is the single source of what a square looks like: the
+    /// glyph and the spoken name are *functions* of it, so a square whose classes
+    /// are unchanged has nothing else to update either. That is what keeps a
+    /// 99x99 board usable — one click opens a flood of squares and must not cost
+    /// a hundred thousand DOM writes for the nine thousand it did not touch.
     fn paint_board(&mut self) {
         let cells = self.game.cells();
-        if cells.len() != self.cells.len() {
+        if cells.len() != self.shown.len() {
             // The board was not rebuilt after a level change. Painting what is
             // there would label squares with the wrong level's names.
             warn(
@@ -223,22 +281,40 @@ impl App {
             let _ = board.set_attribute("data-status", self.game.status().slug());
         }
         for (index, cell) in cells.iter().enumerate() {
-            let button = &self.cells[index];
             let classes = cell.classes();
-            if self.shown[index] != classes {
-                button.set_class_name(&classes);
-                self.shown[index] = classes;
+            if self.shown.get(index) == Some(&classes) {
+                continue;
             }
-            button.set_tab_index(if index == self.focused { 0 } else { -1 });
+            let Some(button) = self.button(index) else {
+                continue;
+            };
+            button.set_class_name(&classes);
+            // The button's two children in the order `board_html` writes them:
+            // the glyph, then the spoken name.
+            if let (Some(face), Some(label)) =
+                (button.first_element_child(), button.last_element_child())
+            {
+                face.set_text_content(Some(&cell.face()));
+                label.set_text_content(Some(&cell.label()));
+            }
+            if let Some(slot) = self.shown.get_mut(index) {
+                *slot = classes;
+            }
+        }
 
-            let face = cell.face();
-            if element_text(&self.faces[index]) != face {
-                self.faces[index].set_text_content(Some(&face));
+        // The tab stop moves only when the reader moves it: writing `tabindex`
+        // on ten thousand buttons per repaint is what the loop above exists to
+        // avoid, and it would be the whole cost of it back again.
+        if self.shown_focus != Some(self.focused) {
+            if let Some(previous) = self.shown_focus {
+                if let Some(button) = self.button(previous) {
+                    let _ = button.set_attribute("tabindex", "-1");
+                }
             }
-            let label = cell.label();
-            if element_text(&self.labels[index]) != label {
-                self.labels[index].set_text_content(Some(&label));
+            if let Some(button) = self.button(self.focused) {
+                let _ = button.set_attribute("tabindex", "0");
             }
+            self.shown_focus = Some(self.focused);
         }
     }
 
@@ -282,10 +358,14 @@ impl App {
         self.paint_facts();
     }
 
-    /// Open the square at `index`.
-    fn reveal(&mut self, index: usize) {
+    /// Open the square at `index`, or chord on it when it is already open and
+    /// numbered.
+    ///
+    /// Whether that is a chord is [`Game::open`]'s decision, not this layer's:
+    /// the page does not get to decide a rule from class names it just wrote.
+    fn open(&mut self, index: usize) {
         self.focused = index;
-        let report = self.game.reveal(index);
+        let report = self.game.open(index);
         self.after(report);
     }
 
@@ -294,6 +374,50 @@ impl App {
         self.focused = index;
         let report = self.game.flag(index);
         self.after(report);
+    }
+
+    /// What a tap does: open (or chord) in flag mode, flag otherwise.
+    fn tap(&mut self, index: usize) {
+        if self.flag_mode {
+            self.flag(index);
+        } else {
+            self.open(index);
+        }
+    }
+
+    /// What a long press does: the *other* action, whichever one that is.
+    ///
+    /// It is deliberately not "always flag". A long press that did the same
+    /// thing whatever mode the board is in would be a second way to flag, and
+    /// the point of it is that neither mode costs a trip to the Flag button:
+    /// while flagging, a long press opens; while opening, it flags.
+    fn long_press(&mut self, index: usize) {
+        if self.flag_mode {
+            self.open(index);
+        } else {
+            self.flag(index);
+        }
+        self.buzz();
+    }
+
+    /// Whether a long press has just finished, and the events the browser sends
+    /// for the rest of that gesture are therefore not new gestures.
+    ///
+    /// Reading it does not consume it: `click` and `contextmenu` both arrive
+    /// after one press, and whichever comes first must not let the other
+    /// through.
+    fn long_press_finished(&self) -> bool {
+        js_sys::Date::now() < self.long_press_until.get()
+    }
+
+    /// A short vibration, where the browser offers one.
+    ///
+    /// Only a confirmation that the press has been taken — there is no other
+    /// feedback on a phone that a long press has fired, and a reader who is
+    /// unsure presses again, which flags and then unflags the same square.
+    /// A refusal is a normal condition: iOS has no `vibrate` at all.
+    fn buzz(&self) {
+        let _ = self.window.navigator().vibrate_with_duration(12);
     }
 
     /// Say what just happened, repaint and save.
@@ -308,6 +432,8 @@ impl App {
 
     /// Start a new game on `level`.
     fn new_game(&mut self, level: Level) {
+        // A press armed on the old board must not fire against the new one.
+        self.cancel_press();
         self.game = Game::new(level, fresh_seed());
         self.flag_mode = false;
         self.last_tick.set(js_sys::Date::now());
@@ -320,6 +446,24 @@ impl App {
         self.save();
     }
 
+    /// Stop the press in progress, if there is one.
+    ///
+    /// Called on release, on the browser's cancellation, on drift, and before a
+    /// new press starts — so a timer can never fire against a square the reader
+    /// has already moved away from.
+    fn cancel_press(&mut self) {
+        if let Some(press) = self.press.take() {
+            self.stop_timer(press.timer);
+        }
+    }
+
+    /// Stop a timer that has not fired.
+    fn stop_timer(&self, timer: i32) {
+        if let Some(window) = web_sys::window() {
+            window.clear_timeout_with_handle(timer);
+        }
+    }
+
     /// Flip between opening squares and marking them.
     fn toggle_flag_mode(&mut self) {
         self.flag_mode = !self.flag_mode;
@@ -327,15 +471,18 @@ impl App {
     }
 
     /// Move the tab stop and the keyboard focus to `index`.
+    ///
+    /// Two writes, not ten thousand: `paint_board` owns the tab-stop bookkeeping,
+    /// and the browser moves focus itself.
     fn focus(&mut self, index: usize) {
-        if index >= self.cells.len() {
+        if index >= self.shown.len() {
             return;
         }
         self.focused = index;
-        for (position, cell) in self.cells.iter().enumerate() {
-            cell.set_tab_index(if position == index { 0 } else { -1 });
+        self.paint_board();
+        if let Some(button) = self.button(index) {
+            let _ = button.focus();
         }
-        let _ = self.cells[index].focus();
     }
 
     /// Persist the game, if the player has done anything worth keeping.
@@ -422,6 +569,32 @@ fn bind(document: &Document, app: &Shared) {
     bind_tools(document, app);
 }
 
+/// The whole board, as one string of markup.
+///
+/// Generated from the cells the game reports, so the first paint after building
+/// a board has nothing to do: the string already says what a repaint would.
+///
+/// The text in it is digits, fixed class names and fixed words, so it needs no
+/// escaping — nothing a reader can type reaches this function, and if something
+/// ever does, this is the line that has to change.
+fn board_html(cells: &[Square]) -> Result<String, JsValue> {
+    use std::fmt::Write as _;
+    let mut html = String::with_capacity(cells.len() * 128);
+    for (index, cell) in cells.iter().enumerate() {
+        write!(
+            html,
+            "<button type=\"button\" tabindex=\"-1\" data-index=\"{index}\" class=\"{classes}\">\
+             <span class=\"face\" aria-hidden=\"true\">{face}</span>\
+             <span class=\"visually-hidden\">{label}</span></button>",
+            classes = cell.classes(),
+            face = cell.face(),
+            label = cell.label(),
+        )
+        .map_err(|_| JsValue::from_str("the board could not be written"))?;
+    }
+    Ok(html)
+}
+
 /// The board's three listeners: open, mark, and move.
 fn bind_board(document: &Document, app: &Shared) {
     let Some(board) = element(document, "board") else {
@@ -435,25 +608,36 @@ fn bind_board(document: &Document, app: &Shared) {
             return;
         };
         let mut app = shared.borrow_mut();
-        if app.flag_mode {
-            app.flag(index);
-        } else {
-            app.reveal(index);
+        // A long press has already done its work and the browser still sends a
+        // click after the release. Doing both would flag a square and then open
+        // it, which on a covered square is a lost game.
+        if app.long_press_finished() {
+            return;
         }
+        app.tap(index);
     });
     listen(&board, "click", click.as_ref().unchecked_ref());
     click.forget();
 
+    bind_press(&board, app);
+
     // A right click marks a square: the desktop habit, and it costs one
-    // listener. The phone's equivalent is the Flag button above; a long press
-    // would be a second path to the same state that nobody discovers.
+    // listener. On a phone the long press below is the equivalent.
     let shared = Rc::clone(app);
     let mark = Closure::<dyn FnMut(Event)>::new(move |event: Event| {
         let Some(index) = cell_index(&event) else {
             return;
         };
         event.prevent_default();
-        shared.borrow_mut().flag(index);
+        let mut app = shared.borrow_mut();
+        // Android turns a long press into a `contextmenu` at about half a
+        // second. That is the same gesture this app has already handled, so
+        // acting on it again would flag the square a second time and undo the
+        // flag the reader just made.
+        if app.long_press_finished() {
+            return;
+        }
+        app.flag(index);
     });
     listen(&board, "contextmenu", mark.as_ref().unchecked_ref());
     mark.forget();
@@ -479,6 +663,120 @@ fn bind_board(document: &Document, app: &Shared) {
     });
     listen(&board, "keydown", keys.as_ref().unchecked_ref());
     keys.forget();
+}
+
+/// The press that may become a long press.
+///
+/// Three listeners and a timer, rather than a gesture library: `pointerdown`
+/// starts the timer, and `pointerup`, `pointercancel` and a `pointermove` past a
+/// thumb's width of drift all cancel it. `pointercancel` is the one that matters
+/// on a phone — a finger that starts scrolling is cancelled by the browser, and
+/// a long press that survived that would flag a square every time the reader
+/// scrolled a board.
+fn bind_press(board: &Element, app: &Shared) {
+    let shared = Rc::clone(app);
+    let down = Closure::<dyn FnMut(PointerEvent)>::new(move |event: PointerEvent| {
+        let Some(index) = cell_index(&event) else {
+            return;
+        };
+        // A right click is not a press: it is the desktop's way to flag, and it
+        // arrives here as button 2 before the `contextmenu` that handles it.
+        if event.button() != 0 {
+            return;
+        }
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let pressed = shared.clone();
+        let timer = Closure::<dyn FnMut()>::new(move || {
+            let mut app = pressed.borrow_mut();
+            // The press is taken, not read: this timer has fired, so there is
+            // nothing left to cancel, and the action below repaints — a record
+            // of an armed press surviving a render would be a press that can
+            // never end.
+            let Some(press) = app.press.take() else {
+                return;
+            };
+            // The belt to `pointerdown`'s braces: a timer that finds a press on
+            // a different square has outlived its press, and must do nothing.
+            if press.index != index {
+                return;
+            }
+            app.long_press_until
+                .set(js_sys::Date::now() + f64::from(SUPPRESS_MS));
+            app.long_press(index);
+        });
+        let Ok(handle) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            timer.as_ref().unchecked_ref(),
+            LONG_PRESS_MS,
+        ) else {
+            return;
+        };
+        // The closure is held by the browser only for the length of the timer,
+        // so it has to be forgotten *after* it is handed over, and the handle is
+        // what cancels it early.
+        timer.forget();
+        let mut app = shared.borrow_mut();
+        app.cancel_press();
+        app.press.set(Some(Press {
+            index,
+            x: f64::from(event.client_x()),
+            y: f64::from(event.client_y()),
+            timer: handle,
+        }));
+    });
+    listen(board, "pointerdown", down.as_ref().unchecked_ref());
+    down.forget();
+
+    let shared = Rc::clone(app);
+    let up = Closure::<dyn FnMut(PointerEvent)>::new(move |_| {
+        shared.borrow_mut().cancel_press();
+    });
+    listen(board, "pointerup", up.as_ref().unchecked_ref());
+    up.forget();
+
+    // The browser's own cancellation: a scroll started, a second finger
+    // arrived, the pointer left the window. Any of them means this was not a
+    // press, and none of them will send a `pointerup`.
+    let shared = Rc::clone(app);
+    let cancel = Closure::<dyn FnMut(Event)>::new(move |_| {
+        shared.borrow_mut().cancel_press();
+    });
+    listen(board, "pointercancel", cancel.as_ref().unchecked_ref());
+    cancel.forget();
+
+    let shared = Rc::clone(app);
+    let drift = Closure::<dyn FnMut(PointerEvent)>::new(move |event: PointerEvent| {
+        let app = shared.borrow_mut();
+        // The press is taken out and put back, because `Press` is not `Copy` and
+        // borrowing it would fight the `cancel_press` call below. Anything that
+        // leaves here without putting it back must have stopped its timer.
+        let Some(press) = app.press.take() else {
+            return;
+        };
+        let moved =
+            (f64::from(event.client_x()) - press.x).hypot(f64::from(event.client_y()) - press.y);
+        if moved > PRESS_SLOP_PX {
+            // Too far to be a press on one square: the reader is scrolling, and
+            // a long press would fire on a square their finger has left.
+            app.stop_timer(press.timer);
+            return;
+        }
+        app.press.set(Some(press));
+    });
+    listen(board, "pointermove", drift.as_ref().unchecked_ref());
+    drift.forget();
+}
+
+/// A press that may still become a long press.
+struct Press {
+    /// The square the finger went down on.
+    index: usize,
+    /// Where it went down, in viewport pixels, for the drift check.
+    x: f64,
+    y: f64,
+    /// The timer to stop if the press ends early.
+    timer: i32,
 }
 
 /// The three controls: a mode, a level and a new game.
@@ -623,7 +921,7 @@ async fn register_worker(window: &Window) -> Result<web_sys::ServiceWorkerContai
     // And the handover itself: when the new worker takes control, the page is
     // still the old version in memory, so reload — exactly once, or the page
     // would loop.
-    let reloaded = Rc::new(JsCell::new(false));
+    let reloaded = Rc::new(Cell::new(false));
     let window = window.clone();
     let controller = Closure::<dyn FnMut()>::new(move || {
         if reloaded.replace(true) {
@@ -789,11 +1087,6 @@ fn neighbour(width: usize, height: usize, index: usize, key: &str) -> Option<usi
         "End" => Some(row * width + width - 1),
         _ => None,
     }
-}
-
-/// The text of an element, or `""`.
-fn element_text(element: &Element) -> String {
-    element.text_content().unwrap_or_default()
 }
 
 /// Attach a listener, reporting rather than panicking when it cannot.

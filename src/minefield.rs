@@ -26,11 +26,21 @@ pub enum Level {
     Beginner,
     Intermediate,
     Expert,
+    /// 99 squares square. Not a board anyone finishes; it is the size for
+    /// someone who wants to find out how big a minefield their phone can hold,
+    /// and it exists because a game that only offers three sizes someone else
+    /// picked eventually runs into a fourth.
+    Insane,
 }
 
 impl Level {
     /// Every level, easiest first: what the menu lists and what the tests walk.
-    pub const ALL: [Self; 3] = [Self::Beginner, Self::Intermediate, Self::Expert];
+    pub const ALL: [Self; 4] = [
+        Self::Beginner,
+        Self::Intermediate,
+        Self::Expert,
+        Self::Insane,
+    ];
 
     /// The board's width in squares.
     pub const fn width(self) -> usize {
@@ -38,6 +48,7 @@ impl Level {
             Self::Beginner => 9,
             Self::Intermediate => 16,
             Self::Expert => 30,
+            Self::Insane => 99,
         }
     }
 
@@ -47,6 +58,7 @@ impl Level {
             Self::Beginner => 9,
             Self::Intermediate => 16,
             Self::Expert => 16,
+            Self::Insane => 99,
         }
     }
 
@@ -56,6 +68,10 @@ impl Level {
             Self::Beginner => 10,
             Self::Intermediate => 40,
             Self::Expert => 99,
+            // One mine in five, the density of a board that is dense enough to
+            // need care and open enough to be played. Not scaled from Expert's
+            // 20.6% into a rounder number by accident: 2000 is 20.4% of 9801.
+            Self::Insane => 2_000,
         }
     }
 
@@ -70,6 +86,7 @@ impl Level {
             Self::Beginner => "Beginner",
             Self::Intermediate => "Intermediate",
             Self::Expert => "Expert",
+            Self::Insane => "Insane",
         }
     }
 
@@ -79,6 +96,7 @@ impl Level {
             Self::Beginner => "beginner",
             Self::Intermediate => "intermediate",
             Self::Expert => "expert",
+            Self::Insane => "insane",
         }
     }
 
@@ -344,6 +362,37 @@ mod tests {
         assert_eq!((Level::Expert.width(), Level::Expert.height()), (30, 16));
         assert_eq!(Level::Expert.cells(), 480);
         assert_eq!(Level::Expert.mines(), 99);
+
+        assert_eq!((Level::Insane.width(), Level::Insane.height()), (99, 99));
+        assert_eq!(Level::Insane.cells(), 9_801);
+        assert_eq!(Level::Insane.mines(), 2_000);
+    }
+
+    #[test]
+    fn every_level_can_actually_be_built_with_a_safe_first_click() {
+        // The rule `Minefield::new` asserts, asserted for the whole list rather
+        // than discovered by a panic in the biggest case: a 99x99 board with its
+        // safe zone is still 9792 squares, and a level whose mines did not fit
+        // would be a board that cannot start.
+        for level in Level::ALL {
+            let field = Minefield::new(level, 1, level.cells() / 2);
+            assert_eq!(field.mines(), level.mines(), "{}", level.label());
+        }
+    }
+
+    #[test]
+    fn the_biggest_board_is_built_quickly_enough_to_start() {
+        // Placement is one pass over the board plus a shuffle, so it is linear
+        // in the squares. This is a floor, not a benchmark: a quadratic placement
+        // would take minutes here and the app would look hung on launch.
+        let start = std::time::Instant::now();
+        let field = Minefield::new(Level::Insane, 12_345, 4_950);
+        let elapsed = start.elapsed();
+        assert_eq!(field.mines(), 2_000);
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "placing 2000 mines on 9801 squares took {elapsed:?}"
+        );
     }
 
     #[test]
@@ -536,6 +585,13 @@ mod tests {
 
     #[test]
     fn the_biggest_level_is_the_one_with_the_most_squares() {
-        assert_eq!(Level::biggest(), Level::Expert);
+        // Derived, not asserted by name: a level list that grows must not leave
+        // a "biggest" behind that is no longer the biggest.
+        let biggest = Level::ALL
+            .into_iter()
+            .max_by_key(|level| level.cells())
+            .expect("a level list is not empty");
+        assert_eq!(Level::biggest(), biggest);
+        assert_eq!(biggest, Level::Insane);
     }
 }

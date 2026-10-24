@@ -48,14 +48,26 @@ any path. Point any file host at it — nginx, Caddy, GitHub Pages,
 Tap a square to open it. The first square you open is always safe: the mines are
 placed after that tap, and neither it nor its neighbours are mined, so a board
 can never be lost before it has been played. A square with no mines around it
-opens everything reachable from it. Press **Flag** to mark squares instead of
-opening them, or right-click on a desktop. The counter above the board is the
-mines not yet flagged, and the clock starts on the first square you open rather
-than when the page loads.
+opens everything reachable from it. The counter above the board is the mines not
+yet flagged, and the clock starts on the first square you open rather than when
+the page loads.
 
-Three sizes: Beginner is 9×9 with 10 mines, Intermediate 16×16 with 40, Expert
-30×16 with 99. Expert is the board the game has always been, so on a phone it
-scrolls sideways instead of being squeezed into untappable squares.
+**A long press does the other thing.** Hold a square to flag it; hold one while
+the board is in flag mode and it opens instead. Neither mode costs a trip to the
+button, and a press that turns into a scroll does nothing.
+
+**Tap a number whose flags are all placed to open everything around it.** That is
+what the numbers are for, and it is the fastest way to play — but the flags are
+your claim about the board, not the board itself, so a chord over a flag in the
+wrong place will open the mine it was hiding. The counter going down is not the
+same as being right.
+
+Press **Flag** to switch to marking with plain taps, or right-click on a desktop.
+
+Four sizes: Beginner is 9×9 with 10 mines, Intermediate 16×16 with 40, Expert
+30×16 with 99 and Insane 99×99 with 2000. Expert is the board the game has always
+been and Insane is absurd on purpose, so on a phone both scroll instead of being
+squeezed into untappable squares.
 
 A game in progress is kept, including one you lost, so closing the tab or losing
 signal does not lose the board. The clock is wall-clock time spent with the game

@@ -31,10 +31,10 @@ js-sys = "0.3.105"
 # pulls generated bindings you do not need into the wasm.
 web-sys = { version = "0.3.105", features = [
   "Window", "Document", "Element", "HtmlButtonElement", "HtmlSelectElement",
-  "Node", "Event", "EventTarget", "KeyboardEvent", "Navigator", "Storage",
-  "StorageManager", "ServiceWorkerContainer", "ServiceWorkerRegistration",
-  "ServiceWorker", "ServiceWorkerState", "RegistrationOptions", "console",
-  "Location", "Url"
+  "HtmlCollection", "Node", "Event", "EventTarget", "KeyboardEvent",
+  "PointerEvent", "Navigator", "Storage", "StorageManager",
+  "ServiceWorkerContainer", "ServiceWorkerRegistration", "ServiceWorker",
+  "ServiceWorkerState", "RegistrationOptions", "console", "Location", "Url"
 ] }
 
 [lints.rust]
