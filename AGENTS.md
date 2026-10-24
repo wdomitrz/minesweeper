@@ -70,10 +70,24 @@ rule set is tested natively.
 
 ## Decisions worth keeping
 
-- **Flag mode is a button, not a gesture.** A phone has no right button and a
-  long press is undiscoverable; a checkbox would also toggle without a listener
+- **Two gestures, and the long one is the other action.** A tap does what the
+  mode says; a long press does the opposite, so neither mode needs the Flag
+  button. The gesture is `pointerdown` plus a 450ms timer, cancelled by
+  `pointerup`, `pointercancel` and 10px of drift — a press that becomes a scroll
+  must not flag the square the finger left. The browser then sends more events
+  for the same gesture (a `click` on release, and on Android a `contextmenu` at
+  ~500ms), so both are gated on a 700ms suppression window measured from when the
+  long press fired. A flag consumed by one would let the other through and do
+  both actions on one square, which on a covered square is a lost game.
+- **Flag mode is a button as well.** A checkbox would toggle without a listener
   but cannot be *disabled* when the game is over, and flagging a finished board
   is meaningless. A button carries `aria-pressed` for the same information.
+- **A click on an open number chords.** Whether a click opens or chords is a
+  rule, so `Game::is_chordable`/`Game::chord` decide it and `ui.rs` only calls
+  `Game::open`; the page never decides a rule from class names it just wrote. A
+  chord acts on the *player's* claim, not the board's truth, which is why the
+  mine check runs before anything opens and ends the game — and why a chord that
+  loses does not leave a half-opened ring behind.
 - **One tab stop, arrows to move.** 480 buttons in the tab order is not
   navigation. `roving tabindex`, with the arrow keys bounded by the board rather
   than wrapping around it.
@@ -83,6 +97,12 @@ rule set is tested natively.
   caught by playing the game in a browser — the unit tests pass a whole number of
   seconds, so no unit test could have seen it. Time is only banked while the game
   is being played.
+- **Four boards, the last one absurd.** Insane is 99x99 with 2000 mines. It is
+  drawn dense — a 1px gap, no per-square lighting, 14-22px squares — because
+  9801 bevels is a texture rather than a set of buttons, and the flag is the
+  level's own property rather than a measurement of the screen, so the same level
+  looks the same everywhere. Its board opens inside its own scroll box on both
+  axes, so the clock and the controls stay where the reader left them.
 - **A correct flag survives a loss.** Losing shows every mine, but a square the
   player flagged right keeps its flag: taking it away punishes the one thing they
   did correctly.
@@ -93,6 +113,14 @@ rule set is tested natively.
   wrong field count, an unknown level, a status written by a version that did not
   have it, a board whose letters do not parse, more flags than mines and a first
   click off the board; anything it refuses is a fresh board, never a failed start.
+- **A big board is one HTML string, not ten thousand elements.** A 99x99 board
+  is 9801 squares; three retained handles each is thirty thousand objects, and
+  appending them one at a time took 17 seconds on this machine (a document
+  fragment alone only got it to five). The board is now written as markup built
+  from `Game::cells` and parsed once — the first paint after it is a no-op by
+  construction — and a square is looked up by index only when something about it
+  changes. The paint's cache is the class string alone, because the glyph and the
+  spoken name are functions of it.
 - **Geometry is fluid, not computed.** The board's width is `100%` clamped
   between `cols × 24px` and `cols × 40px`, the columns are `minmax(0, 1fr)`, and
   each square is `aspect-ratio: 1`. An earlier version derived the square size
@@ -121,6 +149,16 @@ The rules themselves are tested in `src/minefield.rs` and `src/game.rs` — the
 safe first click at corners, edges and the middle on all three boards, the
 neighbour counts against a plain count, floods, the flag ceiling, win and loss,
 the clock's cap, the prose, and every malformed stored game.
+
+**Gestures and chording, verified in the same browser harness on 2026-10-24**:
+a tap opens; a long press flags exactly once (not flag-then-open, which is what
+the unsuppressed `click` did); a long press on a flagged square removes the flag;
+in flag mode a tap flags and a long press opens; a 70px drag across five
+`pointermove`s does neither; a chord on a satisfied number opens its ring; and a
+chord over a wrong flag loses the game and draws the mine that ended it. Each of
+those has a domain or source-text test behind it, and each was mutation-tested —
+reverting the suppression, the mode swap, the chord's loss and the paint's skip
+turns the corresponding test red.
 
 **Verified in a browser on 2026-10-24** (headless Chromium over raw CDP, since
 there is no node on this host): the board renders and plays at 390×844, 320×640,

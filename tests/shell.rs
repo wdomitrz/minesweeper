@@ -2279,6 +2279,207 @@ fn a_new_version_can_take_over_a_running_app() {
     );
 }
 
+/// The board has two gestures, and neither may fire twice for one press.
+///
+/// A long press is the *other* action: while opening, it flags; while flagging,
+/// it opens. The browser does not stop there — it sends a `click` when the finger
+/// lifts, and Android sends a `contextmenu` about half a second in — so the page
+/// has to ignore the rest of the gesture or it will do both actions on one square.
+/// That is not cosmetic: flag-then-open on a covered square is a lost game.
+#[test]
+fn a_long_press_does_the_other_action_and_only_once() {
+    let source = std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs");
+    let ui = strip_rust_comments(&source);
+
+    // The gesture exists: a pointer press, a timer, and its cancellation.
+    for required in [
+        "\"pointerdown\"",
+        "\"pointerup\"",
+        // The one that matters on a phone: a finger that starts scrolling is
+        // cancelled by the browser, and a long press surviving that would flag a
+        // square every time the reader scrolled the board.
+        "\"pointercancel\"",
+        "set_timeout_with_callback_and_timeout_and_arguments_0",
+        "clear_timeout_with_handle",
+        "fn long_press(",
+        "fn cancel_press(",
+        "LONG_PRESS_MS",
+        "PRESS_SLOP_PX",
+    ] {
+        assert!(ui.contains(required), "src/ui.rs has no {required}");
+    }
+
+    // The other action is a mode swap, not "always flag": a long press that
+    // flagged whatever mode the board was in would be a second way to flag, and
+    // the point is that neither mode needs the Flag button.
+    let long_press = ui
+        .split_once("fn long_press(&mut self")
+        .expect("the long press handler")
+        .1
+        .split_once("\n    }")
+        .expect("the end of the handler")
+        .0;
+    assert!(
+        long_press.contains("if self.flag_mode {") && long_press.contains("self.open(index)"),
+        "a long press in flag mode must open the square, not flag it again"
+    );
+    assert!(
+        long_press.matches("self.flag(index)").count() == 1,
+        "a long press must flag in exactly one branch"
+    );
+
+    // …and both of the browser's trailing events are gated on the same
+    // suppression, whichever reaches the page first.
+    let click = ui
+        .split_once("listen(&board, \"click\"")
+        .expect("the click handler")
+        .0;
+    let click_body = click
+        .rsplit("Closure::<dyn FnMut(Event)>::new")
+        .next()
+        .unwrap_or("");
+    assert!(
+        click_body.contains("long_press_finished()"),
+        "the click after a long press must be ignored, or one press does both actions"
+    );
+    let menu = ui
+        .split_once("listen(&board, \"contextmenu\"")
+        .expect("the contextmenu handler")
+        .0;
+    let menu_body = menu
+        .rsplit("Closure::<dyn FnMut(Event)>::new")
+        .next()
+        .unwrap_or("");
+    assert!(
+        menu_body.contains("long_press_finished()"),
+        "Android's contextmenu from a long press must be ignored too"
+    );
+    assert!(
+        !click_body.contains("long_press_until.set(")
+            && !menu_body.contains("long_press_until.set("),
+        "reading the suppression must not consume it: both events arrive after one press"
+    );
+}
+
+/// A click on an open number chords, and chording is the game's decision.
+///
+/// The page must not decide a rule from class names it just wrote: whether a
+/// click opens or chords depends on the board, so it lives in `game.rs` and the
+/// UI only calls it.
+#[test]
+fn a_click_asks_the_game_whether_it_chords() {
+    let source = std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs");
+    let ui = strip_rust_comments(&source);
+    let game = strip_rust_comments(
+        &std::fs::read_to_string(root().join("src/game.rs")).expect("reading src/game.rs"),
+    );
+
+    assert!(
+        !ui.contains("reveal(index)"),
+        "the page must call `open`, which decides between opening and chording, \
+         not `reveal`, which cannot chord"
+    );
+    assert!(ui.contains("self.open(index)"), "the tap handler must open");
+
+    // The rule, in the domain: chordable means open, numbered, and not a mine.
+    let gate = game
+        .split_once("pub fn is_chordable")
+        .expect("the chordability rule")
+        .1
+        .split_once("\n    }")
+        .expect("the end of the rule")
+        .0;
+    for part in [
+        "Cover::Revealed",
+        "field.count(index) > 0",
+        "!field.is_mine(index)",
+    ] {
+        assert!(
+            gate.contains(part),
+            "the chordability rule is missing {part}"
+        );
+    }
+
+    // A chord that loses is a rule, not an accident: the flags are a claim and
+    // the chord acts on it, so the mine check has to end the game.
+    let chord = game
+        .split_once("pub fn chord(")
+        .expect("the chord")
+        .1
+        .split_once("\n    }\n")
+        .expect("the end of the chord")
+        .0;
+    assert!(
+        chord.contains("Status::Lost"),
+        "a chord on a wrong flag must be able to lose the game"
+    );
+    assert!(
+        chord.contains("Report::FlagsDoNotMatch"),
+        "a chord with the wrong number of flags must be refused, not partially applied"
+    );
+}
+
+/// The board is drawn without holding ten thousand element handles.
+///
+/// A 99x99 board is 9801 squares: three handles each is thirty thousand retained
+/// objects, and building them one `append_child` at a time took 17 seconds on
+/// this machine before the board became a single string. Both are easy to undo by
+/// accident, and neither shows up as a test failure anywhere else.
+#[test]
+fn the_board_is_one_string_and_squares_are_looked_up_by_index() {
+    let source = std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs");
+    let ui = strip_rust_comments(&source);
+    assert!(
+        ui.contains("fn board_html("),
+        "the board must be built as markup, not element by element"
+    );
+    assert!(
+        ui.contains("set_inner_html(&board_html("),
+        "that markup must be the one thing written into the board"
+    );
+    assert!(
+        !ui.contains("self.cells"),
+        "the board must not keep a Vec of button handles: a square is looked up \
+         by its index when something about it changes"
+    );
+    // The paint has to skip squares whose class string did not change: that is
+    // the single cache the glyph and the spoken name are derived from.
+    let paint = ui
+        .split_once("fn paint_board")
+        .expect("the paint")
+        .1
+        .split_once("\n    }\n")
+        .expect("the end of the paint")
+        .0;
+    assert!(
+        paint.contains("if self.shown.get(index) == Some(&classes) {")
+            && paint.contains("continue;"),
+        "the paint must skip unchanged squares, or 9801 of them cost every click"
+    );
+}
+
+/// Every board size is offered, and the biggest one is scrollable rather than
+/// squeezed.
+#[test]
+fn every_level_is_offered_and_the_board_can_scroll() {
+    let page = shell();
+    for slug in ["beginner", "intermediate", "expert", "insane"] {
+        assert!(
+            page.contains(&format!("value=\"{slug}\"")),
+            "the board menu does not offer {slug}"
+        );
+    }
+    let css = style();
+    assert!(
+        css.contains("overflow: auto"),
+        "the board must scroll on both axes: 99 squares wide does not fit a phone"
+    );
+    assert!(
+        css.contains("max-height:"),
+        "a tall board must scroll inside its own box, or the controls leave the screen"
+    );
+}
+
 /// Both workflows run the same site check, on the same output.
 ///
 /// `build.yml` runs it on every pull request; `pages.yml` runs it again before

@@ -20,8 +20,9 @@
   /* A covered square is raised and a little lighter than the page; an open one
      is flat and darker, so the board reads as a surface being uncovered rather
      than as a grid of unrelated tiles. */
-  --up: #232c39;
-  --up-edge: #33404f;
+  --up: #263041;
+  --up-face: #2d394c;
+  --up-edge: #3d4b5e;
   --down: #12181f;
   --flag: #ffb454;
   --mine: #e6edf3;
@@ -59,7 +60,8 @@
     --accent: #0b5cd5;
     --accent-ink: #ffffff;
     --up: #d5dce4;
-    --up-edge: #b6c0cb;
+    --up-face: #e4e9ef;
+    --up-edge: #b3bec9;
     --down: #eef1f5;
     --flag: #a40e26;
     --mine: #1c2128;
@@ -98,6 +100,10 @@ body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  /* A long press is a gesture of this app's own. Without this, iOS raises its
+     callout sheet and Android selects the glyph underneath — both of which eat
+     the press before the app's own timer sees it finish. */
+  -webkit-touch-callout: none;
   touch-action: manipulation;
 }
 
@@ -134,17 +140,23 @@ h1 {
 .fact:last-child { margin-left: auto; }
 .fact strong { color: var(--fg); font-weight: 600; }
 
-/* The scroll container. Expert is 30 squares wide; it scrolls sideways rather
-   than shrinking to an untappable grid. `max-content` on the board with auto
-   margins keeps it centred while it fits and scrollable from its left edge when
-   it does not — centring with flex instead clips the first column. */
+/* The scroll container. Expert is 30 squares wide and Insane is 99, so a board
+   that does not fit scrolls rather than shrinking to an untappable grid — and
+   past a certain height it scrolls *inside* this box as well, so the tools and
+   the clock stay where the reader left them instead of a page-length below the
+   top row. `margin-inline: auto` on the board keeps it centred while it fits and
+   scrollable from its left edge when it does not; centring with flex instead
+   clips the first column. */
 .board-wrap {
   width: 100%;
   max-width: var(--board-max);
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
+  max-height: max(12rem, calc(100dvh - 13rem));
+  overflow: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  /* Room for the scrollbar on a desktop without moving the board when there is
+     none: a board that jumps sideways as it grows is worse than a gutter. */
+  scrollbar-gutter: stable;
 }
 
 /* The board. Its width is the available width clamped to a floor and a ceiling:
@@ -162,10 +174,15 @@ h1 {
    gap than there are columns, because the board is padded by the same amount. */
 #board {
   --gap: 2px;
+  --min-cell: 24px;
+  --max-cell: 40px;
   --overhead: calc((var(--cols) + 1) * var(--gap));
-  --floor: calc(var(--cols) * 24px + var(--overhead));
-  --ceiling: calc(var(--cols) * 40px + var(--overhead));
+  --floor: calc(var(--cols) * var(--min-cell) + var(--overhead));
+  --ceiling: calc(var(--cols) * var(--max-cell) + var(--overhead));
   width: clamp(var(--floor), 100%, var(--ceiling));
+  /* Below the floor the board scrolls, so it must not be squeezed by the scroll
+     container either: a grid item shrinks, and the clamp would then be a lie. */
+  flex: none;
   height: max-content;
   margin-inline: auto;
   display: grid;
@@ -198,18 +215,53 @@ h1 {
   touch-action: manipulation;
 }
 
-/* A covered square is raised; a pressed one sinks. That is the whole affordance
-   a minesweeper board has, and it costs one inset shadow. */
+/* A covered square is a raised tile; an open one is a flat hole.
+   That is the whole affordance a minesweeper board has, and it is worth spending
+   a few lines on: the board is 81 to 9801 near-identical shapes, so the only
+   thing that tells a reader where they have been is the difference between them.
+   Three signals, all cheap, all pointing the same way:
+   - a face slightly lighter than the tile, so the square reads as raised;
+   - a hairline of light along the top edge and one of shadow along the bottom,
+     which is a light source without a gradient to repaint 9801 times;
+   - a small radius, so a covered square is a stone and an open one is a hole. */
 #board button.hidden {
-  box-shadow: inset 0 1px 0 var(--up-edge), inset 0 -1px 0 rgba(0, 0, 0, .25);
+  background: linear-gradient(180deg, var(--up-face) 0%, var(--up) 62%);
+  box-shadow:
+    inset 0 1px 0 var(--up-edge),
+    inset 0 -2px 0 rgba(0, 0, 0, .22),
+    0 1px 1px rgba(0, 0, 0, .18);
 }
 
-#board button.hidden:active { background: var(--up-edge); }
+/* Pressed: the tile sinks into its own hole, which is the only motion a board
+   this dense can afford. */
+#board button.hidden:active {
+  background: var(--down);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .45);
+}
 
 #board button.revealed {
   background: var(--down);
   box-shadow: none;
   cursor: default;
+}
+
+/* A dense board drops the lighting and keeps the two states: at 14 pixels a
+   tile's bevel is a stripe, and 9801 gradients is a texture, not a set of
+   buttons. The gap shrinks with the squares so the grid lines stay hairlines. */
+#board[data-dense] {
+  --gap: 1px;
+  --min-cell: 14px;
+  --max-cell: 22px;
+}
+
+#board[data-dense] button {
+  border-radius: 1px;
+  font-size: 62cqmin;
+}
+
+#board[data-dense] button.hidden {
+  background: var(--up);
+  box-shadow: inset 0 1px 0 var(--up-edge);
 }
 
 #board button.flagged { color: var(--flag); }

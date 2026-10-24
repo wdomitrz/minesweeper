@@ -193,6 +193,106 @@ impl Game {
         Report::Opened(opened)
     }
 
+    /// Open a square, or chord on one that is already open and numbered.
+    ///
+    /// This is what a click means, and the whole reason it exists as one method:
+    /// whether a square opens or chords is a rule, so it is decided here rather
+    /// than by the page guessing from classes it just wrote. On a covered square
+    /// this is exactly [`Self::reveal`]; on an open number it is
+    /// [`Self::chord`], because a number that has all its flags beside it is not
+    /// a square to open, it is a button for the squares around it.
+    pub fn open(&mut self, index: usize) -> Report {
+        if self.is_chordable(index) {
+            return self.chord(index);
+        }
+        self.reveal(index)
+    }
+
+    /// Whether a click on `index` would chord rather than open.
+    ///
+    /// The page uses this to draw the squares a chord would take, so the reader
+    /// can see what they are about to do before they do it — and a wrong chord
+    /// is a game.
+    pub fn is_chordable(&self, index: usize) -> bool {
+        if index >= self.cover.len() || self.is_finished() {
+            return false;
+        }
+        if self.cover[index] != Cover::Revealed {
+            return false;
+        }
+        self.field
+            .as_ref()
+            .is_some_and(|field| !field.is_mine(index) && field.count(index) > 0)
+    }
+
+    /// Open every covered square beside an open number, when the flags beside it
+    /// already account for it.
+    ///
+    /// This is the move every minesweeper has under some name, and the only one
+    /// that can *lose* a game the player was not touching: the flags are a claim
+    /// about the board, and a chord acts on the claim. Put two flags on the
+    /// wrong squares beside a `2` and the chord opens the mine they were hiding.
+    /// That is the point — a board that only ever rewarded correct flags would
+    /// make the flag counter a score rather than a tool.
+    ///
+    /// The mine check runs over the whole neighbourhood before anything opens, so
+    /// a chord that loses does not also leave a half-opened ring behind.
+    pub fn chord(&mut self, index: usize) -> Report {
+        if !self.is_chordable(index) {
+            return Report::Nothing;
+        }
+        let Some(field) = self.field.as_ref() else {
+            return Report::Nothing;
+        };
+        let (width, height) = (field.width(), field.height());
+        let count = field.count(index);
+        let neighbours: Vec<usize> = around(width, height, index).collect();
+        let flagged = neighbours
+            .iter()
+            .filter(|neighbour| self.cover[**neighbour] == Cover::Flagged)
+            .count();
+        let wanted = usize::from(count);
+        if flagged != wanted {
+            // More flags than the number needs is as wrong as fewer, and opening
+            // on either would be acting on a claim the player has not made.
+            return Report::FlagsDoNotMatch {
+                count,
+                flagged,
+                wanted,
+            };
+        }
+
+        let mine = neighbours
+            .iter()
+            .find(|neighbour| {
+                self.cover[**neighbour] == Cover::Hidden && field.is_mine(**neighbour)
+            })
+            .copied();
+        if let Some(mine) = mine {
+            self.cover[mine] = Cover::Revealed;
+            self.exploded = Some(mine);
+            self.status = Status::Lost;
+            return Report::Lost;
+        }
+
+        let hidden: Vec<usize> = neighbours
+            .into_iter()
+            .filter(|neighbour| self.cover[*neighbour] == Cover::Hidden)
+            .collect();
+        if hidden.is_empty() {
+            return Report::Nothing;
+        }
+        let opened = hidden
+            .into_iter()
+            .map(|neighbour| self.open_area(neighbour))
+            .sum();
+        if self.is_won() {
+            self.status = Status::Won;
+            return Report::Won(self.elapsed);
+        }
+        Report::Opened(opened)
+    }
+
     /// Mark the square at `index` as a suspected mine, or unmark it.
     ///
     /// Flagging cannot start the game: the clock waits for the first square
@@ -513,6 +613,15 @@ pub enum Report {
     AlreadyFlagged,
     /// Every mine already has a flag.
     AllFlagsPlaced(usize),
+    /// A chord was asked for on a number whose flags do not account for it.
+    FlagsDoNotMatch {
+        /// The number in the square.
+        count: u8,
+        /// Flags actually beside it.
+        flagged: usize,
+        /// Flags the number says should be.
+        wanted: usize,
+    },
     /// The game was won, in this many seconds.
     Won(u32),
     /// A mine was opened.
@@ -532,6 +641,14 @@ impl Report {
             Self::AllFlagsPlaced(mines) => {
                 format!("All {mines} flags are placed. Remove one to mark another.")
             }
+            Self::FlagsDoNotMatch {
+                count, flagged: 0, ..
+            } => format!("That {count} has no flags beside it yet."),
+            Self::FlagsDoNotMatch {
+                count,
+                flagged,
+                wanted,
+            } => format!("That {count} has only {flagged} of the {wanted} flags it needs."),
             Self::Won(seconds) => outcome_words(Status::Won, *seconds),
             Self::Lost => outcome_words(Status::Lost, 0),
         }
@@ -747,6 +864,235 @@ mod tests {
         assert!(game.is_finished());
         assert_eq!(last.words(), "Cleared in 42 seconds.");
         assert_eq!(game.readout().summary, "Cleared in 42 seconds.");
+    }
+
+    /// A board with a known, tiny neighbourhood to chord on: a real beginner
+    /// game, with the index of a numbered square and its neighbours read off the
+    /// minefield rather than assumed.
+    fn numbered_game(seed: u64) -> (Game, usize, Vec<usize>) {
+        let game = started(Level::Beginner, seed);
+        let field = game.field.as_ref().expect("field");
+        let width = field.width();
+        let index = (0..game.cells().len())
+            .find(|index| {
+                game.cover[*index] == Cover::Revealed
+                    && !field.is_mine(*index)
+                    && field.count(*index) > 0
+                    && around(width, field.height(), *index)
+                        .any(|neighbour| game.cover[neighbour] == Cover::Hidden)
+            })
+            .expect("a first click always leaves a numbered square with a covered neighbour");
+        let neighbours = around(width, field.height(), index).collect();
+        (game, index, neighbours)
+    }
+
+    #[test]
+    fn clicking_an_open_number_opens_the_squares_it_says_are_clear() {
+        let (mut game, index, neighbours) = numbered_game(4_242);
+        let field = game.field.as_ref().expect("field");
+        let count = field.count(index);
+        // Flag exactly the mines beside it, which is what a player who has read
+        // the number would do.
+        let mines: Vec<usize> = neighbours
+            .iter()
+            .copied()
+            .filter(|neighbour| field.is_mine(*neighbour))
+            .collect();
+        assert_eq!(mines.len(), usize::from(count));
+        for mine in &mines {
+            if game.cover[*mine] == Cover::Hidden {
+                game.flag(*mine);
+            }
+        }
+        let report = game.chord(index);
+        assert!(
+            matches!(report, Report::Opened(opened) if opened > 0),
+            "a chord with the right flags opens the rest: {report:?}"
+        );
+        // ...and the squares the number said were clear are now open.
+        let field = game.field.as_ref().expect("field");
+        for neighbour in &neighbours {
+            if field.is_mine(*neighbour) {
+                assert_eq!(game.cover[*neighbour], Cover::Flagged);
+            } else {
+                assert_ne!(
+                    game.cover[*neighbour],
+                    Cover::Hidden,
+                    "a square the number said was clear stayed covered"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_chord_with_too_few_flags_says_so_and_opens_nothing() {
+        let (mut game, index, _) = numbered_game(777);
+        let before = game.cover.clone();
+        let report = game.chord(index);
+        assert!(
+            matches!(report, Report::FlagsDoNotMatch { flagged: 0, .. }),
+            "{report:?}"
+        );
+        assert_eq!(game.cover, before, "nothing may open without the flags");
+        assert!(!report.words().is_empty());
+        assert!(
+            report.words().contains("no flags beside it"),
+            "{}",
+            report.words()
+        );
+    }
+
+    #[test]
+    fn a_chord_with_too_many_flags_opens_nothing() {
+        // A number with more covered neighbours than it has mines beside it, so
+        // there is room to plant one flag too many. One seed per attempt, and the
+        // first board that offers such a square is the one the test uses: which
+        // board it is does not matter, only that over-flagging is refused.
+        let (mut game, index, neighbours) = (0..200u64)
+            .find_map(|seed| {
+                let (game, index, neighbours) = numbered_game(seed * 977 + 5);
+                let count = usize::from(game.field.as_ref().expect("field").count(index));
+                let hidden = neighbours
+                    .iter()
+                    .filter(|neighbour| game.cover[**neighbour] == Cover::Hidden)
+                    .count();
+                (hidden > count).then_some((game, index, neighbours))
+            })
+            .expect("some beginner board offers a number with a covered neighbour to spare");
+        let count = usize::from(game.field.as_ref().expect("field").count(index));
+        let mut flagged = 0;
+        for neighbour in &neighbours {
+            if flagged > count {
+                break;
+            }
+            if game.cover[*neighbour] == Cover::Hidden {
+                game.flag(*neighbour);
+                flagged += 1;
+            }
+        }
+        assert_eq!(flagged, count + 1);
+        let before = game.cover.clone();
+        let report = game.chord(index);
+        assert!(
+            matches!(report, Report::FlagsDoNotMatch { count: c, flagged: f, .. } if usize::from(c) == count && f == flagged),
+            "over-flagging must not be acted on either: {report:?}"
+        );
+        assert_eq!(game.cover, before);
+        assert!(!report.words().is_empty());
+    }
+
+    #[test]
+    fn a_chord_on_wrong_flags_loses_the_game() {
+        // The case worth guarding: the flags are a claim, and a chord acts on it.
+        // A board where this could never lose would make the flag counter a score
+        // rather than a tool.
+        let (mut game, index, neighbours) = numbered_game(20_261_024);
+        let field = game.field.as_ref().expect("field");
+        let count = usize::from(field.count(index));
+        let safe: Vec<usize> = neighbours
+            .iter()
+            .copied()
+            .filter(|neighbour| {
+                !field.is_mine(*neighbour) && game.cover[*neighbour] == Cover::Hidden
+            })
+            .collect();
+        assert!(
+            safe.len() >= count,
+            "this seed cannot lie about this number's flags; try another"
+        );
+        // Flag the wrong squares: as many flags as the number wants, none of them
+        // on a mine.
+        for square in safe.iter().take(count) {
+            game.flag(*square);
+        }
+        let report = game.chord(index);
+        assert_eq!(report, Report::Lost, "a wrong chord must be able to lose");
+        assert_eq!(game.status(), Status::Lost);
+        let exploded = game.exploded.expect("the mine that ended it");
+        assert!(!safe.contains(&exploded) || game.field.as_ref().expect("field").is_mine(exploded));
+        assert!(game.field.as_ref().expect("field").is_mine(exploded));
+    }
+
+    #[test]
+    fn a_chord_wins_the_game_when_it_opens_the_last_squares() {
+        let (mut game, index, neighbours) = numbered_game(9_999);
+        // Open everything except the mines and this neighbourhood first, so the
+        // chord is the last move.
+        let mines: Vec<usize> = {
+            let field = game.field.as_ref().expect("field");
+            (0..field.cells()).filter(|i| field.is_mine(*i)).collect()
+        };
+        let elsewhere: Vec<usize> = (0..game.cells().len())
+            .filter(|i| !mines.contains(i) && !neighbours.contains(i))
+            .collect();
+        for square in elsewhere {
+            if game.is_finished() {
+                break;
+            }
+            game.reveal(square);
+        }
+        // Flag the mines beside the number and chord it.
+        let mines_here: Vec<usize> = neighbours
+            .iter()
+            .copied()
+            .filter(|neighbour| {
+                game.field
+                    .as_ref()
+                    .is_some_and(|field| field.is_mine(*neighbour))
+            })
+            .collect();
+        for mine in mines_here {
+            if game.cover[mine] == Cover::Hidden {
+                game.flag(mine);
+            }
+        }
+        let report = game.chord(index);
+        assert_eq!(game.status(), Status::Won, "{report:?}");
+        assert!(game.is_finished());
+    }
+
+    #[test]
+    fn open_chords_an_open_number_and_reveals_anything_else() {
+        let (game, index, _) = numbered_game(5_515);
+        assert!(game.is_chordable(index));
+
+        // A covered square is never a chord, even when it has numbers around it.
+        let covered = (0..game.cells().len())
+            .find(|i| game.cover[*i] == Cover::Hidden)
+            .expect("a covered square");
+        assert!(!game.is_chordable(covered));
+
+        // A clear, already-open square has nothing to say about its neighbours.
+        let clear = (0..game.cells().len())
+            .find(|i| {
+                game.cover[*i] == Cover::Revealed
+                    && game
+                        .field
+                        .as_ref()
+                        .is_some_and(|field| field.count(*i) == 0)
+            })
+            .expect("a first click opens clear squares");
+        assert!(!game.is_chordable(clear));
+
+        // And out-of-range indices are refused rather than panicking.
+        assert!(!game.is_chordable(usize::MAX));
+    }
+
+    #[test]
+    fn opening_a_covered_square_is_the_same_as_revealing_it() {
+        // Same seed, same first square, so the two boards must stay identical:
+        // `open` is allowed to branch on a square being open already, and
+        // nothing else.
+        let mut opened_through_open = Game::new(Level::Beginner, 12);
+        let mut opened_through_reveal = Game::new(Level::Beginner, 12);
+        let via_open = opened_through_open.open(40);
+        let via_reveal = opened_through_reveal.reveal(40);
+        assert_eq!(via_open, via_reveal);
+        assert_eq!(
+            opened_through_open.to_stored(),
+            opened_through_reveal.to_stored()
+        );
+        assert_eq!(opened_through_open.status(), Status::Playing);
     }
 
     #[test]
