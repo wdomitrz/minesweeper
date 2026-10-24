@@ -870,15 +870,17 @@ fn the_scope_is_a_relative_directory_shared_with_the_worker() {
 /// page links, and both install PNGs are rasterized from it at build time, so
 /// it is never replaced by a PNG and never regenerated.
 ///
-/// The digest is the original template's, recorded so that an "improved" icon
-/// is a deliberate act with a visible diff rather than a silent one.
+/// The digest is recorded so that an "improved" icon is a deliberate act with a
+/// visible diff rather than a silent one.
 ///
-/// Deliberately changed once, on 2026-10-01: the file had carried the original
-/// template's `P` glyph in dark `#434343`, and three bars in a mid grey replaced
-/// it. The pin is the mechanism working as intended — a red test, a visible
-/// diff, a reason — so it stays, and the reason moves here with the change
-/// rather than being left in a commit message to rot.
-const ICON_SHA256: &str = "16b32170d63ca3a229242a031251213a10ddb51e36069a69fd801cd8369cfcdb";
+/// Deliberately changed twice: on 2026-10-23 the file had carried the original
+/// template's `P` glyph in dark `#434343`, and a mine in mid grey `#606060`
+/// replaced it; on 2026-10-24 the grey moved to `#444444` with the rest of the
+/// family, which had settled there. The pin is the mechanism working as
+/// intended — a red test, a visible diff, a reason — so it stays, and the
+/// reason moves here with the change rather than being left in a commit
+/// message to rot.
+const ICON_SHA256: &str = "cf4de5716e2014d7e77eed1e989e90913ebd7c28d9943c0fb083a16375443d4d";
 
 #[test]
 fn the_icon_is_the_committed_svg() {
@@ -916,9 +918,10 @@ fn the_icon_is_the_committed_svg() {
     fills.dedup();
     assert_eq!(
         fills,
-        ["#606060"],
-        "the icon is one colour, and it is the legible midpoint between a light \
-         and a dark surface; found fills {fills:?}"
+        ["#444444"],
+        "the icon is one colour, and it is the family's — the same grey every \
+         app in the family pins, not a grey re-derived per app; found fills \
+         {fills:?}"
     );
     // The PNGs are build output: never committed, and never in the source tree
     // at all. They exist in `dist/`, which is the site and nothing else. The
@@ -2373,7 +2376,7 @@ fn a_long_press_does_the_other_action_and_only_once() {
         .next()
         .unwrap_or("");
     assert!(
-        click_body.contains("long_press_finished()"),
+        click_body.contains("suppressed(index)"),
         "the click after a long press must be ignored, or one press does both actions"
     );
     let menu = ui
@@ -2385,13 +2388,34 @@ fn a_long_press_does_the_other_action_and_only_once() {
         .next()
         .unwrap_or("");
     assert!(
-        menu_body.contains("long_press_finished()"),
+        menu_body.contains("suppressed(index)"),
         "Android's contextmenu from a long press must be ignored too"
     );
     assert!(
-        !click_body.contains("long_press_until.set(")
-            && !menu_body.contains("long_press_until.set("),
+        !click_body.contains("suppressed_index.set(")
+            && !menu_body.contains("suppressed_index.set("),
         "reading the suppression must not consume it: both events arrive after one press"
+    );
+    // …and the suppression is scoped to the gesture, not to a clock. A
+    // wall-clock window swallowed every tap made inside it, and a fast player
+    // taps faster than any window is wide.
+    let down = ui
+        .split_once("listen(board, \"pointerdown\"")
+        .expect("the pointerdown handler")
+        .0;
+    let down_body = down
+        .rsplit("Closure::<dyn FnMut(PointerEvent)>::new")
+        .next()
+        .unwrap_or("");
+    assert!(
+        down_body.contains("suppressed_index.set(None)"),
+        "the pointerdown handler clears the suppression: a gesture cannot outlive \
+         the finger that made it, and a new press must not be dropped for the \
+         last one"
+    );
+    assert!(
+        !ui.contains("SUPPRESS_MS") && !ui.contains("long_press_until"),
+        "the suppression must not be a wall-clock window again"
     );
 }
 
@@ -2622,7 +2646,7 @@ fn a_phone_contextmenu_is_not_a_right_click() {
          it races the long press that is about to fire"
     );
     assert!(
-        body.contains("long_press_finished()"),
+        body.contains("suppressed(index)"),
         "and ignored again just after it fired, when the same gesture's \
          contextmenu arrives late"
     );

@@ -71,23 +71,33 @@ rule set is tested natively.
 ## Decisions worth keeping
 
 - **Two gestures, and the long one is the other action.** A tap does what the
-  mode says; a long press does the opposite, so neither mode needs the Flag
-  button. The gesture is `pointerdown` plus a 450ms timer, cancelled by
-  `pointerup`, `pointercancel` and 10px of drift — a press that becomes a scroll
+  mode says — except that an open number chords in *both* modes, below. The
+  gesture is `pointerdown` plus a 450ms timer, cancelled by `pointerup`,
+  `pointercancel` and 10px of drift — a press that becomes a scroll
   must not flag the square the finger left. The browser then sends more events
   for the same gesture (a `click` on release, and on Android a `contextmenu` at
-  ~500ms), so both are gated on a 700ms suppression window measured from when the
-  long press fired. A flag consumed by one would let the other through and do
+  ~500ms), so both are gated on a suppression that names the square the long
+  press acted on. A flag consumed by one would let the other through and do
   both actions on one square, which on a covered square is a lost game.
+- **Suppression is a square, not a clock.** The trailing events of a long
+  press were first gated on a 700ms wall-clock window measured from when the
+  long press fired — which also swallowed every deliberate tap the reader made
+  inside it, and a fast player taps faster than any window is wide. The
+  suppression now names the square the long press acted on and is cleared the
+  next time a finger goes down anywhere on the board: a gesture cannot outlive
+  the finger that made it, so nothing time-based has to guess how long the
+  browser's echo might lag.
 - **Flag mode is a button as well.** A checkbox would toggle without a listener
   but cannot be *disabled* when the game is over, and flagging a finished board
   is meaningless. A button carries `aria-pressed` for the same information.
-- **A click on an open number chords.** Whether a click opens or chords is a
-  rule, so `Game::is_chordable`/`Game::chord` decide it and `ui.rs` only calls
-  `Game::open`; the page never decides a rule from class names it just wrote. A
-  chord acts on the *player's* claim, not the board's truth, which is why the
-  mine check runs before anything opens and ends the game — and why a chord that
-  loses does not leave a half-opened ring behind.
+- **A click on an open number chords, in either mode.** Whether a click opens
+  or chords is a rule, so `Game::is_chordable`/`Game::chord` decide it and
+  `ui.rs` only calls `Game::open`; the page never decides a rule from class
+  names it just wrote. Mode decides what a tap means only on a *covered*
+  square; a satisfied number is a button for its ring in flag mode exactly as
+  in open mode. A chord acts on the *player's* claim, not the board's truth,
+  which is why the mine check runs before anything opens and ends the game —
+  and why a chord that loses does not leave a half-opened ring behind.
 - **One tab stop, arrows to move.** 480 buttons in the tab order is not
   navigation. `roving tabindex`, with the arrow keys bounded by the board rather
   than wrapping around it.
@@ -132,7 +142,8 @@ rule set is tested natively.
   a second into a long press — *before* this app's own 600ms timer. Acting on it
   flags the square and then the timer fires and unflags it, so a long press
   appears to do nothing. The handler is gated on `press_armed()` as well as on
-  the post-fire suppression window; a real right click arms no press at all
+  the just-fired long press's own suppression (which names its square); a real
+  right click arms no press at all
   (`pointerdown` returns early for a secondary button), which is the distinction.
 - **Every level draws its squares with the same rules.** There was a second
   style for the 99x99 board — flat fill, hairline gap, no bevel — justified by
@@ -226,6 +237,15 @@ chord over a wrong flag loses the game and draws the mine that ended it. Each of
 those has a domain or source-text test behind it, and each was mutation-tested —
 reverting the suppression, the mode swap, the chord's loss and the paint's skip
 turns the corresponding test red.
+
+**Re-verified in the browser on 2026-10-24, after the mode and suppression
+changes**: a plain click on a satisfied number chords with flag mode off *and*
+with it on; a tap right after a long press — inside the old 700 ms window —
+lands on its own square and opens it, and a second quick tap lands too; the
+long-pressed square keeps its flag and does not open from the trailing echo; a
+right click still flags. In flag mode, a long press that opens a square is
+followed by a tap that flags — the open square answering as an open square —
+which is the same rule, not a dropped gesture.
 
 **Verified in a browser on 2026-10-24** (headless Chromium over raw CDP, since
 there is no node on this host): the board renders and plays at 390×844, 320×640,
