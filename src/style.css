@@ -190,41 +190,32 @@ h1 {
 
 /* The checkbox is the state and the label is the face, so focus has to be shown
    on the face when the checkbox has it. */
-.focus-toggle:focus-visible + .icon-button {
+.icon-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Board only: everything but the board folds away, the icon turns to point
-   inward, and the board takes the screen. `:has()` rather than a script class
-   because the checkbox already holds the state — a second copy of it in Rust
-   would be a copy that can disagree. */
-body:has(#focus:checked) header,
-body:has(#focus:checked) .facts,
-body:has(#focus:checked) .tools,
-body:has(#focus:checked) #status {
-  display: none;
+/* Full screen: the browser takes the chrome away, and the page takes the rest.
+   Nothing is hidden here — the title, the clock and the controls stay, because
+   they are the app; what changed is that the address bar, the tab strip and the
+   system bars are gone. */
+:fullscreen {
+  background: var(--bg);
 }
 
-body:has(#focus:checked) .board-wrap {
-  max-width: none;
-  border-radius: 0;
+:fullscreen body {
+  height: 100vh;
+  padding: max(.6rem, env(safe-area-inset-top)) .6rem max(.6rem, env(safe-area-inset-bottom));
 }
 
-body:has(#focus:checked) #focus-label svg { transform: rotate(180deg); }
-
-/* On the board itself the control needs a backdrop, or it is a pale glyph on
-   whatever the board is: nothing, when a square happens to be under it. */
-body:has(#focus:checked) #focus-label {
-  right: max(.4rem, env(safe-area-inset-right));
+/* On the board itself, the control needs a backdrop, or it is a pale glyph on
+   whatever is under it. */
+:fullscreen .icon-button {
+  right: max(.6rem, env(safe-area-inset-right));
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter: blur(6px);
   border-radius: .4rem;
 }
-
-/* In the fold, the board is the screen: no max width, no rounding. */
-body:has(#focus:checked) main { max-width: none; }
-body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
 
 .fact { white-space: nowrap; }
 .fact:last-child { margin-left: auto; }
@@ -239,10 +230,9 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
    clips the first column. */
 /* The one flexible part of the page. It takes every pixel the clock, the title
    and the controls above and below it do not need, on both axes, and nothing
-   else on the page grows. `touch-action: none` is what makes a pinch its own
-   gesture here rather than the browser zooming the whole page instead — the
-   board is the thing worth magnifying, since the header and the buttons are
-   already at a readable size.
+   else on the page grows. `touch-action: manipulation` lets the browser do what
+   it does best on a board this size: pan the scroll box, and magnify the page on
+   a pinch. The app asks for no gesture of its own here.
 
    `overscroll-behavior: contain` keeps a pan at the edge of the board from
    turning into a page scroll, and on an installed app from a pull-to-refresh
@@ -255,7 +245,11 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
      edge is a band of nothing that pushes the controls a thumb's reach away. The
      flex basis doing the arithmetic is `--wrap-h`, which `fit_canvas` sets to
      the smaller of the box's two dimensions. */
-  flex: 0 1 var(--wrap-h, auto);
+  /* A definite basis. Sizing this box from a number the fit also reads makes the
+     two feed each other: the box measures the board it is deciding the size of,
+     and the board settles at its floor. `1 1 0` takes the space and nothing else,
+     and the board centres itself inside it. */
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   width: 100%;
@@ -264,7 +258,7 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
   overflow: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  touch-action: none;
+  touch-action: manipulation;
   scrollbar-width: thin;
   border-radius: .4rem;
 }
@@ -282,20 +276,10 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
    The bounds are the square's own size with the gaps counted in, so the floor
    really is a 24px square and not a 22px one: a gap is 2px and there is one more
    gap than there are columns, because the board is padded by the same amount. */
-/* The board is sized to the square that fits, and then scaled.
-
-   A square has two bounds: a floor, below which a finger cannot pick a square
-   reliably, and a ceiling, above which a board stops looking like a board. With
-   `--fit` the square is the largest of those that still lets the whole board fit
-   the box — whichever of width and height binds — so a 9x9 board fills a phone
-   screen instead of sitting at the top of it, and a 99x99 board is drawn at its
-   floor and scrolled.
-
-   `--zoom` then multiplies it, and `--cell` carries the product, so the *only*
-   thing a magnify gesture changes is that one number: the grid, the font and the
-   gaps all derive from it. A `transform` would be cheaper to paint but scales
-   the nonce — text stays crisp at 3x with a layout size, and sharp is the whole
-   point of zooming a board of numbers. */
+/* The board is sized to the square that fits: `--fit` is the largest square that
+   lets the whole board fit the box — whichever of width and height binds — so a
+   9x9 board fills a phone screen instead of sitting at the top of it, and a 99x99
+   board is drawn at its floor and scrolled. */
 #board {
   --gap: 2px;
   --min-cell: 24px;
@@ -310,7 +294,7 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
   --fit-w: calc((var(--canvas-w, 100%) - var(--overhead)) / var(--cols));
   --fit-h: calc((var(--canvas-h, 100%) - var(--overhead)) / var(--rows));
   --fit: clamp(var(--min-cell), min(var(--fit-w), var(--fit-h), var(--max-cell)), var(--max-cell));
-  --cell: calc(var(--fit) * var(--zoom, 1));
+  --cell: var(--fit);
   width: calc(var(--cols) * var(--cell) + var(--overhead));
   height: max-content;
   margin: auto;
@@ -330,11 +314,7 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Square, from the column width alone: no height has to be kept in step with
-     the width anywhere in this file. */
-  aspect-ratio: 1;
-  /* So the glyph below can be sized to the square rather than to the page. */
-  container-type: size;
+  /* Already square: `grid-auto-rows` gives every square its height. */
   background: var(--up);
   color: var(--fg);
   font-family: var(--mono);
@@ -386,7 +366,7 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
 
 #board[data-dense] button {
   border-radius: 1px;
-  font-size: 62cqmin;
+  font-size: calc(var(--cell) * 0.62);
 }
 
 #board[data-dense] button.hidden {
@@ -423,17 +403,15 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
   z-index: 1;
 }
 
-/* The glyph, sized to the square rather than to the page. It has to be *this*
-   element: an element cannot query itself, so `cqmin` on the button resolves
-   against whatever container is above it — there is none, and it silently
-   becomes a viewport unit, which draws a 200px digit in a 38px square. A
-   fallback first, for a browser without container query units, so the
-   degradation is a slightly wrong size rather than a digit spilling out of
-   every square. */
+/* The glyph, sized to the square rather than to the page. This used to be a
+   container query (`container-type: size` on the button, `cqmin` here), which was
+   correct and made every one of up to 9801 squares a size container — the single
+   most expensive thing a board this dense can ask for. The square's size is
+   already a custom property, so arithmetic gets the same answer for nothing. */
 .face {
   pointer-events: none;
   font-size: 1rem;
-  font-size: 52cqmin;
+  font-size: calc(var(--cell) * 0.52);
 }
 
 /* The tools. Three controls, each at least 44px tall: a thumb on a phone should
@@ -442,29 +420,6 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
 /* A short label for a narrow screen, which is only a visual abbreviation: the
    full words stay in the accessible name at every width. */
 .narrow-only { display: none; }
-
-/* The two zoom buttons are square and a little narrower than the others: a pair
-   of symbols next to a word should not take the room of two words, and on a
-   phone every pixel in this row is one the board does not get. They live in the
-   tools row rather than floating over the board: a board of 24-pixel squares
-   cannot spare two of them, and a control that covers the thing it magnifies is
-   the opposite of helpful. */
-#zoom-in,
-#zoom-out {
-  width: 2.5rem;
-  min-width: 2.5rem;
-  padding: 0;
-  font-size: 1.15rem;
-  line-height: 1;
-}
-
-/* The symbol only: its words are for a screen reader, and a reader who can see
-   the button has already read them. */
-#zoom-in [aria-hidden],
-#zoom-out [aria-hidden] {
-  display: block;
-}
-
 
 .tools {
   width: 100%;
@@ -593,8 +548,6 @@ body:has(#focus:checked) .board-wrap { max-width: none; flex: 1 1 auto; }
   .tools { gap: .2rem; }
   .tools button,
   .tools select { font-size: .8rem; }
-  #zoom-in,
-  #zoom-out { width: 2.3rem; min-width: 2.3rem; }
   .wide-only { display: none; }
   .narrow-only { display: inline; }
 }

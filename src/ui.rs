@@ -87,14 +87,6 @@ const DENSE_CELLS: usize = 2_000;
 /// before it has moved far enough to be felt as a drag.
 const PRESS_SLOP_PX: f64 = 6.0;
 
-/// The zoom steps, as a multiplier of the square size that fits the screen.
-///
-/// 1 is "the whole board, as large as it goes", which is what a reader wants by
-/// default and what the buttons return to. Six steps because a board of numbers
-/// has no use for finer control than that, and a pinch interpolates between them
-/// anyway.
-const ZOOM_STEPS: [f64; 6] = [1.0, 1.5, 2.0, 3.0, 4.0, 6.0];
-
 /// Start the app.
 ///
 /// Runs automatically when the page's dynamic import resolves, because the
@@ -169,20 +161,11 @@ struct App {
     /// The press in progress: the square it started on, where the finger was,
     /// and the timer that would make it a long press.
     press: Cell<Option<Press>>,
-    /// The board's scroll container: the box the board is fitted into, and the
-    /// element a pinch is measured on.
+    /// The board's scroll container: the box the board is fitted into.
     wrap: Option<Element>,
-    /// The zoom, as a multiplier of the square size that fits the box. 1 shows
-    /// the whole board; above that the board overflows and is panned by drag.
-    zoom: f64,
-    /// Pointers currently down on the board, by pointer id: a second one turns a
-    /// press into a pinch, and a pinch is not a tap.
+    /// Pointers currently down on the board, by pointer id. A second one means
+    /// the reader is magnifying the page, and the press in progress is not a tap.
     pointers: Vec<(i32, f64, f64)>,
-    /// The distance between the two pointers when a pinch was last measured.
-    pinch_from: Cell<f64>,
-    /// The zoom when that pinch started, so the pinch scales from what the reader
-    /// already had rather than from a step.
-    pinch_zoom: Cell<f64>,
     /// When the last long press finished, as a wall-clock time.
     ///
     /// A long press does its own work, and the browser then sends more events
@@ -221,10 +204,7 @@ impl App {
             last_tick: Cell::new(js_sys::Date::now()),
             pending: Cell::new(0.0),
             wrap: None,
-            zoom: 1.0,
             pointers: Vec::new(),
-            pinch_from: Cell::new(0.0),
-            pinch_zoom: Cell::new(1.0),
             press: Cell::new(None),
             long_press_until: Cell::new(0.0),
         };
@@ -285,7 +265,7 @@ impl App {
         self.paint_board();
         self.paint_facts();
         self.paint_tools();
-        self.paint_fold();
+        self.paint_fullscreen();
     }
 
     /// The button for one square, looked up when it is needed.
@@ -360,26 +340,33 @@ impl App {
         set_text(&self.document, "remaining", &readout.remaining);
     }
 
-    /// Paint the fold control's name.
+    /// Paint the full-screen control's name.
     ///
-    /// "Board only" is what tapping it does while the chrome is showing, and
-    /// "Show controls" is what it does while it is not. A control named for the
-    /// state the reader is already in reads as a statement, not an action — the
-    /// rule this whole shell is held to, and the reason the label has to be
-    /// written here rather than left as the markup's first words.
-    fn paint_fold(&self) {
-        let checked = element(&self.document, "focus")
-            .and_then(|element| element.dyn_into::<web_sys::HtmlInputElement>().ok())
-            .is_some_and(|input| input.checked());
+    /// "Full screen" is what tapping it does while the browser is windowed, and
+    /// "Leave full screen" is what it does while it is not. A control named for
+    /// the state the reader is already in reads as a statement, not an action.
+    ///
+    /// Asked of the DOM rather than of a flag here, because full screen can also
+    /// be left with Escape, with the browser's own chrome, or by the system: a
+    /// flag this app set would be wrong the first time the reader did that. The
+    /// `fullscreenchange` listener is what repaints it.
+    fn paint_fullscreen(&self) {
+        let in_full_screen = self.document.fullscreen_element().is_some();
         set_text(
             &self.document,
-            "focus-label-text",
-            if checked {
-                "Show controls"
+            "fullscreen-label",
+            if in_full_screen {
+                "Leave full screen"
             } else {
-                "Board only"
+                "Full screen"
             },
         );
+        if let Some(control) = button(&self.document, "fullscreen") {
+            let _ = control.set_attribute(
+                "aria-pressed",
+                if in_full_screen { "true" } else { "false" },
+            );
+        }
     }
 
     /// Paint the controls whose state is part of the game.
@@ -489,9 +476,7 @@ impl App {
 
     /// Start a new game on `level`.
     ///
-    /// The zoom survives a new game and a level change: it is a property of the
-    /// reader's eyes, not of the board, and resetting it would mean re-pinching
-    /// after every game on a phone.
+    /// Start a new game on `level`.
     fn new_game(&mut self, level: Level) {
         // A press armed on the old board must not fire against the new one.
         self.cancel_press();
@@ -502,60 +487,10 @@ impl App {
         if let Err(error) = self.build_board() {
             warn("the board could not be rebuilt", &error);
         }
-        self.set_zoom(self.zoom);
         fit_canvas(self);
         set_text(&self.document, "status", "");
         self.paint();
         self.save();
-    }
-
-    /// Show the board at `zoom`, clamped to the steps and applied to the square
-    /// size the board is fitted at.
-    ///
-    /// One custom property, because everything about a square's size derives from
-    /// it: the grid columns, the row height, the empty space around them, and the
-    /// glyph, which is sized in `cqmin` of the square. Nothing is re-rendered, so
-    /// this is cheap enough to run on every frame of a pinch.
-    fn set_zoom(&mut self, zoom: f64) {
-        let (low, high) = (ZOOM_STEPS[0], ZOOM_STEPS[ZOOM_STEPS.len() - 1]);
-        let zoom = zoom.clamp(low, high);
-        self.zoom = zoom;
-        // `style` is on `HtmlElement`, not `Element`: the board is a `div`, and a
-        // `div` is both, but only the typed handle has the accessor.
-        if let Some(board) = element(&self.document, "board")
-            .and_then(|board| board.dyn_into::<web_sys::HtmlElement>().ok())
-        {
-            let _ = board.style().set_property("--zoom", &format!("{zoom:.2}"));
-        }
-        if let Some(out) = button(&self.document, "zoom-out") {
-            out.set_disabled(zoom <= low);
-        }
-        if let Some(in_) = button(&self.document, "zoom-in") {
-            in_.set_disabled(zoom >= high);
-        }
-    }
-
-    /// The next step up or down from where the reader is.
-    ///
-    /// A step, not a multiplier: `zoom * 1.5` drifts off the list and lands on
-    /// 2.25, which is neither a step nor what the label said. From an arbitrary
-    /// pinch value it takes the first step past it, which makes the buttons the
-    /// way back to a known scale.
-    fn zoom_step(&mut self, up: bool) {
-        let current = self.zoom;
-        let next = if up {
-            ZOOM_STEPS
-                .into_iter()
-                .find(|step| *step > current + f64::EPSILON)
-        } else {
-            ZOOM_STEPS
-                .into_iter()
-                .rev()
-                .find(|step| *step < current - f64::EPSILON)
-        };
-        if let Some(next) = next {
-            self.set_zoom(next);
-        }
     }
 
     /// Track a pointer going down, and return whether this press is still a
@@ -569,35 +504,23 @@ impl App {
         if self.pointers.len() < 2 {
             return true;
         }
+        // Two fingers is the page being magnified, which is the browser's job;
+        // it must not also be a tap on the square under one of them.
         self.cancel_press();
-        self.pinch_from.set(pinch_distance(&self.pointers));
-        self.pinch_zoom.set(self.zoom);
         false
     }
 
-    /// Track a pointer moving, and return the zoom it asks for when this is a
-    /// pinch.
-    fn pointer_moved(&mut self, id: i32, x: f64, y: f64) -> Option<f64> {
-        let pointer = self.pointers.iter_mut().find(|entry| entry.0 == id)?;
-        pointer.1 = x;
-        pointer.2 = y;
-        if self.pointers.len() < 2 {
-            return None;
+    /// Track a pointer moving.
+    fn pointer_moved(&mut self, id: i32, x: f64, y: f64) {
+        if let Some(pointer) = self.pointers.iter_mut().find(|entry| entry.0 == id) {
+            pointer.1 = x;
+            pointer.2 = y;
         }
-        let from = self.pinch_from.get();
-        if from <= 0.0 {
-            return None;
-        }
-        Some(self.pinch_zoom.get() * (pinch_distance(&self.pointers) / from))
     }
 
-    /// Track a pointer going away, and stop the pinch when one of the two does.
+    /// Track a pointer going away.
     fn pointer_up(&mut self, id: i32) {
         self.pointers.retain(|entry| entry.0 != id);
-        // Below two pointers there is no distance to measure, and keeping the old
-        // one would make the next moved finger scale from a stale reference.
-        self.pinch_from.set(pinch_distance(&self.pointers));
-        self.pinch_zoom.set(self.zoom);
     }
 
     /// Stop the press in progress, if there is one.
@@ -720,8 +643,7 @@ fn start_clock(window: &Window, app: &Shared) {
 /// no framework, no virtual DOM, no diffing.
 fn bind(document: &Document, app: &Shared) {
     bind_board(document, app);
-    bind_zoom(document, app);
-    bind_fold(document, app);
+    bind_fullscreen(document, app);
     bind_tools(document, app);
 }
 
@@ -923,22 +845,22 @@ fn bind_press(board: &Element, app: &Shared) {
     let drift = Closure::<dyn FnMut(PointerEvent)>::new(move |event: PointerEvent| {
         let mut app = shared.borrow_mut();
         let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-        // A second finger makes this a magnify rather than a press, and the zoom
-        // is the distance between the fingers over the distance it started at.
-        if let Some(zoom) = app.pointer_moved(event.pointer_id(), x, y) {
-            app.set_zoom(zoom);
+        app.pointer_moved(event.pointer_id(), x, y);
+        // Two fingers is the page being magnified by the browser, not a press on
+        // the squares underneath them.
+        if app.pointers.len() > 1 {
+            app.cancel_press();
             return;
         }
-        // One finger: the press is taken out and put back, because `Press` is not
-        // `Copy` and borrowing it would fight the `stop_timer` call below.
-        // Anything that leaves here without putting it back must have stopped the
-        // timer.
+        // The press is taken out and put back, because `Press` is not `Copy` and
+        // borrowing it would fight the `stop_timer` call below. Anything that
+        // leaves here without putting it back must have stopped the timer.
         let Some(press) = app.press.take() else {
             return;
         };
         let moved = (x - press.x).hypot(y - press.y);
         if moved > PRESS_SLOP_PX {
-            // Too far to be a press on one square: the reader is panning a zoomed
+            // Too far to be a press on one square: the reader is panning the
             // board, and a long press must not fire on a square their finger has
             // left.
             app.stop_timer(press.timer);
@@ -948,47 +870,6 @@ fn bind_press(board: &Element, app: &Shared) {
     });
     listen(board, "pointermove", drift.as_ref().unchecked_ref());
     drift.forget();
-
-    // Ctrl and a wheel is how a desktop magnifies, and a trackpad pinch arrives
-    // as exactly that: a `wheel` event with `ctrlKey` set. It is also what the
-    // browser's own zoom uses, so it has to be taken from it — the page must not
-    // zoom, and the board must not stay the same size while the text does.
-    let shared = Rc::clone(app);
-    let wheel = Closure::<dyn FnMut(Event)>::new(move |event: Event| {
-        let Some(event) = event.dyn_into::<web_sys::WheelEvent>().ok() else {
-            return;
-        };
-        if !event.ctrl_key() {
-            return;
-        }
-        event.prevent_default();
-        let mut app = shared.borrow_mut();
-        // A wheel notch is about a tenth of a step in a pinch's terms.
-        let scale = (-event.delta_y() * 0.0025).exp();
-        let zoom = app.zoom * scale;
-        app.set_zoom(zoom);
-    });
-    // Not passive: a `wheel` listener on a scrolling element is passive by
-    // default, and a passive listener's `preventDefault` is ignored with a
-    // console warning — the page would zoom anyway.
-    if let Some(target) = board.dyn_ref::<web_sys::EventTarget>() {
-        let options = web_sys::AddEventListenerOptions::new();
-        options.set_passive(false);
-        let _ = target.add_event_listener_with_callback_and_add_event_listener_options(
-            "wheel",
-            wheel.as_ref().unchecked_ref(),
-            &options,
-        );
-    }
-    wheel.forget();
-}
-
-/// How far apart the first two pointers are, or 0 with fewer than two.
-fn pinch_distance(pointers: &[(i32, f64, f64)]) -> f64 {
-    match (pointers.first(), pointers.get(1)) {
-        (Some(first), Some(second)) => (second.1 - first.1).hypot(second.2 - first.2),
-        _ => 0.0,
-    }
 }
 
 /// A press that may still become a long press.
@@ -1002,38 +883,61 @@ struct Press {
     timer: i32,
 }
 
-/// The fold control: the checkbox owns the state, the label is its face, and the
-/// only script involved is the one that keeps the spoken name honest.
-fn bind_fold(document: &Document, app: &Shared) {
-    let Some(toggle) = element(document, "focus") else {
+/// Full screen: the browser's own, on the page's `<html>` element.
+///
+/// The browser's, not a CSS imitation, and that is the whole point. Real full
+/// screen hides the address bar, the tab strip and the system bars, takes the
+/// whole display, and — the part no layout can reproduce — leaves the browser's
+/// own pinch-zoom available over the page. A page that merely hid its own chrome
+/// got none of that, and the reader could not magnify the board in it.
+///
+/// Asking for `<html>` rather than `<body>` keeps the page's own scroll and
+/// background; asking for the board would give the board the screen but lose the
+/// stylesheet's page-level rules with it.
+fn bind_fullscreen(document: &Document, app: &Shared) {
+    let Some(control) = button(document, "fullscreen") else {
         return;
     };
     let shared = Rc::clone(app);
-    let change = Closure::<dyn FnMut()>::new(move || {
-        shared.borrow().paint_fold();
-    });
-    listen(&toggle, "change", change.as_ref().unchecked_ref());
-    change.forget();
-}
-
-/// The two zoom buttons.
-///
-/// Deliberately not part of the tools row: they belong to the board, they stay
-/// on screen when the board is the only thing on screen, and a reader who has
-/// pinched into the middle of a 99x99 board needs one of them without hunting for
-/// it.
-fn bind_zoom(document: &Document, app: &Shared) {
-    for (id, up) in [("zoom-in", true), ("zoom-out", false)] {
-        let Some(control) = button(document, id) else {
-            continue;
+    let toggle = Closure::<dyn FnMut()>::new(move || {
+        let (in_full_screen, root) = {
+            let app = shared.borrow();
+            (
+                app.document.fullscreen_element().is_some(),
+                app.document.document_element(),
+            )
         };
-        let shared = Rc::clone(app);
-        let step = Closure::<dyn FnMut()>::new(move || {
-            shared.borrow_mut().zoom_step(up);
-        });
-        listen(&control, "click", step.as_ref().unchecked_ref());
-        step.forget();
-    }
+        let Some(root) = root else {
+            return;
+        };
+        if in_full_screen {
+            shared.borrow().document.exit_fullscreen();
+            return;
+        }
+        // A refusal is a normal condition — iOS refuses on anything but a video,
+        // and a browser can refuse a request that is not from a user gesture —
+        // and the page is perfectly usable windowed, so it is not reported on
+        // screen.
+        if let Err(error) = root.request_fullscreen() {
+            warn("full screen was refused", &error);
+        }
+    });
+    listen(&control, "click", toggle.as_ref().unchecked_ref());
+    toggle.forget();
+
+    // Escape, the browser's own chrome, or the system can all leave full screen
+    // without touching this control, so the name follows the DOM rather than a
+    // flag the app set.
+    let shared = Rc::clone(app);
+    let changed = Closure::<dyn FnMut()>::new(move || {
+        shared.borrow().paint_fullscreen();
+    });
+    listen(
+        document,
+        "fullscreenchange",
+        changed.as_ref().unchecked_ref(),
+    );
+    changed.forget();
 }
 
 /// Keep the board fitted to the box it lives in, whenever that box changes size.
@@ -1125,16 +1029,10 @@ fn apply_canvas(app: &App, width: f64, height: f64) {
     } else {
         (width, height)
     };
-    // The board's box is bounded to a square of the space it is given: a square
-    // board is width-bound on a phone, and a box taller than it needs is a band
-    // of nothing between the board and the controls. The smaller of the two
-    // dimensions is what the board can actually use.
-    let side = width.min(height).max(0.0);
     if let Ok(board) = board.clone().dyn_into::<web_sys::HtmlElement>() {
         let style = board.style();
         let _ = style.set_property("--canvas-w", &format!("{width}px"));
         let _ = style.set_property("--canvas-h", &format!("{height}px"));
-        let _ = style.set_property("--wrap-h", &format!("{side}px"));
     }
 }
 

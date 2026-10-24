@@ -2516,137 +2516,107 @@ fn every_level_is_offered_and_the_board_can_scroll() {
         "the page must be one screen, with the board scrolling inside it"
     );
     // And the board's box has to be the flexible one: the whole layout depends on
-    // it being the only thing that grows. Asserted over every `.board-wrap` rule
-    // in the file, not the first one: there are two — the base rule and the
-    // board-only override — and splitting on the first `}` finds whichever
-    // selector happens to come first, which is how this check passed on the
-    // wrong block once already.
+    // it being the only thing that grows, from a *definite* basis. Sizing it from
+    // a number the fit also reads makes the two feed each other — the box measures
+    // the board it is deciding the size of, and the board settles at its floor.
     assert!(
-        css.contains("flex: 0 1 var(--wrap-h, auto)"),
-        "the board's box must take the space the chrome leaves, bounded to a square \
-         so a portrait phone does not get a band of nothing under the board"
+        css.contains("flex: 1 1 0"),
+        "the board's box must take the space the chrome leaves, from a definite \
+         basis rather than one the fit also reads"
     );
-    assert!(
-        css.contains("--wrap-h"),
-        "the square bound must be a measured number, set by `fit_canvas`"
-    );
+    // The fit divides two measured pixels; both must be set by the app.
+    let ui = std::fs::read_to_string(root().join("src/ui.rs")).expect("src/ui.rs");
+    for measured in ["\"--canvas-w\"", "\"--canvas-h\""] {
+        assert!(
+            ui.contains(measured),
+            "{measured} must be measured in ui.rs: a percentage in the grid's own \
+             column sizing is circular and collapses the board to its floor"
+        );
+    }
 }
 
-/// The board is zoomable, by gesture and by control, and the zoom is one number.
+/// Full screen is the browser's, not a page that hides its own chrome.
 ///
-/// The alternative — a CSS `transform` — is cheaper to paint and wrong here: it
-/// scales rasterised text, and sharp is the whole point of zooming a board of
-/// numbers. So the zoom must reach the square size, and the square size must be
-/// the only thing it reaches.
+/// The difference is not tidiness. The browser's full screen hides the address
+/// bar, the tab strip and the system bars, takes the whole display, and leaves
+/// the browser's own pinch-zoom available over the page. A page that merely hid
+/// its own header got none of that — and worse, it was the only way left to
+/// magnify the board, so the app had to grow a zoom of its own to replace what it
+/// had taken away.
 #[test]
-fn the_board_is_zoomable_and_zoom_reaches_the_square_size() {
-    let css = style();
-    let board = css
-        .split_once("#board {")
-        .expect("the board rule")
-        .1
-        .split_once('}')
-        .expect("the end of the rule")
-        .0;
-    assert!(
-        board.contains("--cell: calc(var(--fit) * var(--zoom, 1))"),
-        "the square size must be the fit multiplied by the zoom"
-    );
-    assert!(
-        board.contains("grid-template-columns: repeat(var(--cols), var(--cell))")
-            && board.contains("grid-auto-rows: var(--cell)"),
-        "both axes must take the zoomed square, or squares stop being square"
-    );
-    assert!(
-        !board.contains("transform:"),
-        "a transform would scale the glyphs as a bitmap: zoom must change the \
-         layout size, not paint a bigger picture of a small one"
-    );
-    // The fit is two measured pixels, not percentages: a percentage in
-    // `grid-template-columns` resolves against a width the columns decide, so the
-    // board collapses to its floor and the fit silently does nothing.
-    assert!(
-        board.contains("var(--canvas-w") && board.contains("var(--canvas-h"),
-        "the fit must divide measured pixel boxes"
-    );
-    assert!(
-        !board.contains("calc((100% "),
-        "a percentage in the column sizing is circular; measure it in ui.rs"
-    );
-
+fn full_screen_is_the_browsers_not_a_hidden_header() {
     let ui = strip_rust_comments(
         &std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs"),
     );
-    for required in [
-        "set_timeout_with_callback_and_timeout_and_arguments_0",
-        "fn set_zoom(",
-        "fn zoom_step(",
-        "ZOOM_STEPS",
-        "pointer_moved",
-        // A second finger is a pinch, and a pinch must never become a flags.
-        "fn pointer_down(",
-        "\"wheel\"",
-        "ctrl_key()",
-        "ResizeObserver",
-    ] {
-        assert!(ui.contains(required), "src/ui.rs has no {required}");
-    }
-    // Zoom has to be applied as one custom property: anything else would have to
-    // re-render ten thousand squares on every frame of a pinch.
-    let set = ui
-        .split_once("fn set_zoom(")
-        .expect("the zoom setter")
-        .1
-        .split_once("\n    }\n")
-        .expect("the end of the setter")
-        .0;
     assert!(
-        set.contains("set_property(\"--zoom\"")
-            && !set.contains("paint")
-            && !set.contains("build_board"),
-        "the zoom must be one property write, not a re-render"
+        ui.contains("request_fullscreen()"),
+        "the control must ask the browser for full screen"
     );
-
-    // And the controls exist in the shell, named in words rather than symbols.
-    let page = shell();
-    assert!(page.contains("id=\"zoom-in\"") && page.contains("id=\"zoom-out\""));
     assert!(
-        page.contains(">Zoom out<") && page.contains(">Zoom in<"),
-        "the zoom buttons must carry their name in the markup, not only a glyph"
+        ui.contains("exit_fullscreen()"),
+        "and be able to give it back; a mode with no way out is a trap"
     );
-}
+    // The name follows the DOM, not a flag this app set: Escape, the browser's
+    // own chrome and the system can all leave full screen without touching it.
+    assert!(
+        ui.contains("fullscreen_element()"),
+        "whether the page is full screen must be asked of the document, not remembered"
+    );
+    assert!(
+        ui.contains("\"fullscreenchange\""),
+        "the control's name has to follow a change it did not make"
+    );
+    assert!(ui.contains("\"Leave full screen\"") && ui.contains("\"Full screen\""));
 
-/// The fold control is a way out of the mode it puts the page in.
-///
-/// Board-only mode hides everything but the board, so a control that hid with it
-/// would leave a reader with no visible way back — a mode with no exit is a trap.
-#[test]
-fn board_only_has_a_way_out_and_names_its_action() {
     let page = shell();
+    assert!(page.contains("id=\"fullscreen\" type=\"button\""));
+    assert!(
+        page.contains(">Full screen<"),
+        "the control must carry its name"
+    );
+    // ...and no CSS imitation is left behind it.
     let css = style();
-    // The control is outside the header, which is what folds away.
-    let header = page
-        .split_once("<header>")
-        .expect("the header")
-        .1
-        .split_once("</header>")
-        .expect("the end of the header")
-        .0;
     assert!(
-        !header.contains("id=\"focus\""),
-        "the fold control must not live in the header: board-only mode hides the \
-         header, and the way out would hide with it"
+        !css.contains("#focus:checked"),
+        "the old fold is gone: full screen is not a class on the body"
     );
-    assert!(page.contains("id=\"focus\" type=\"checkbox\""));
+
+    // Nothing in the app takes a gesture the browser needs. A puzzle board needs
+    // one thing from `touch-action`: not this.
     assert!(
-        css.contains("body:has(#focus:checked)") && css.contains("display: none"),
-        "the fold must be a CSS state, not a script class that can disagree"
+        !css.contains("touch-action: none"),
+        "the board must stay pannable, and pinnable, by the browser"
     );
-    // Its name is the action, and the action changes with the state: the app
-    // writes both, so neither can be a leftover.
-    let ui = std::fs::read_to_string(root().join("src/ui.rs")).expect("src/ui.rs");
-    assert!(ui.contains("\"focus-label-text\""));
-    assert!(ui.contains("\"Show controls\"") && ui.contains("\"Board only\""));
+    // Matched as a *declaration*, not as a word: the stylesheet's own comment
+    // explains why the container query went, and naming it there must not read as
+    // having it. Two earlier assertions in this file have been satisfied by the
+    // comment that documented the fix.
+    // A line-filter is not enough: this comment's *second* line does not start
+    // with `*`. Strip the block comments properly first, then look at what is left.
+    let mut live = String::new();
+    let mut rest = css.as_str();
+    loop {
+        match rest.find("/*") {
+            None => {
+                live.push_str(rest);
+                break;
+            }
+            Some(start) => {
+                live.push_str(&rest[..start]);
+                match rest[start..].find("*/") {
+                    Some(end) => rest = &rest[start + end + 2..],
+                    None => break,
+                }
+            }
+        }
+    }
+    let declarations: Vec<&str> = live.lines().map(str::trim).collect();
+    assert!(
+        !declarations
+            .iter()
+            .any(|line| line.contains("cqmin") || line.contains("container-type: size")),
+        "no square may be a size container: 9801 of them is a texture, not a board"
+    );
 }
 
 /// Both workflows run the same site check, on the same output.
