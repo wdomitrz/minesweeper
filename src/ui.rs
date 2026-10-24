@@ -62,15 +62,6 @@ const TICK_MS: i32 = 1_000;
 /// cost of a slightly longer hold to flag.
 const LONG_PRESS_MS: i32 = 600;
 
-/// How long after a long press the browser's trailing events are ignored, in
-/// milliseconds.
-///
-/// Longer than the gap between the press and the `click` on release, and longer
-/// than Android's own `contextmenu` delay, with room for a laggy device. Too long
-/// only means a deliberate tap immediately after a long press is dropped, which
-/// is not a gesture anyone makes on purpose.
-const SUPPRESS_MS: i32 = 700;
-
 /// How far a finger may drift, in CSS pixels, before a press stops being a press.
 ///
 /// A thumb resting on a square moves a little; a finger that is scrolling moves
@@ -161,15 +152,17 @@ struct App {
     /// Pointers currently down on the board, by pointer id. A second one means
     /// the reader is magnifying the page, and the press in progress is not a tap.
     pointers: Vec<(i32, f64, f64)>,
-    /// When the last long press finished, as a wall-clock time.
+    /// The square whose long press is still sending trailing events, if any.
     ///
     /// A long press does its own work, and the browser then sends more events
     /// for the same gesture: a `click` on release, and — on Android — a
     /// `contextmenu` about half a second in. Both would do the *other* action,
-    /// so both are ignored while this time has not passed. A time rather than a
-    /// flag because the two arrive in an order that is not the same on every
-    /// platform, and a flag consumed by the first would let the second through.
-    long_press_until: Cell<f64>,
+    /// so both are ignored for that square. The mark is a square, not a clock:
+    /// a wall-clock window swallowed every tap the reader made within it, and
+    /// a fast player taps faster than any window is wide. A gesture cannot
+    /// outlive the finger that made it, so this is cleared the next time a
+    /// finger goes down on the board.
+    suppressed_index: Cell<Option<usize>>,
     /// Seconds the clock has measured but not yet handed to the game.
     ///
     /// An interval fires *approximately* every second, so the delta is as often
@@ -201,7 +194,7 @@ impl App {
             wrap: None,
             pointers: Vec::new(),
             press: Cell::new(None),
-            long_press_until: Cell::new(0.0),
+            suppressed_index: Cell::new(None),
         };
         app.build_board()?;
         Ok(app)
@@ -375,9 +368,16 @@ impl App {
         self.after(report);
     }
 
-    /// What a tap does: open (or chord) in flag mode, flag otherwise.
+    /// What a tap does, in either mode: open a covered square, and chord an
+    /// open number.
+    ///
+    /// Chording belongs to the square, not to the mode: a satisfied number is a
+    /// button for its ring in flag mode exactly as it is in open mode, so the
+    /// same tap opens it wherever the switch stands. Only a covered square
+    /// turns the tap into a flag when flag mode is on — which is why the chord
+    /// check comes first, and why the game, not the page, owns the rule.
     fn tap(&mut self, index: usize) {
-        if self.flag_mode {
+        if self.flag_mode && !self.game.is_chordable(index) {
             self.flag(index);
         } else {
             self.open(index);
@@ -413,14 +413,15 @@ impl App {
         true
     }
 
-    /// Whether a long press has just finished, and the events the browser sends
-    /// for the rest of that gesture are therefore not new gestures.
+    /// Whether trailing events for a just-fired long press may still arrive,
+    /// and for which square.
     ///
     /// Reading it does not consume it: `click` and `contextmenu` both arrive
-    /// after one press, and whichever comes first must not let the other
-    /// through.
-    fn long_press_finished(&self) -> bool {
-        js_sys::Date::now() < self.long_press_until.get()
+    /// after one long press, and whichever comes first must not let the other
+    /// through. It names the square the long press acted on, so a tap on any
+    /// other square is unaffected — the old wall-clock window swallowed those.
+    fn suppressed(&self, index: usize) -> bool {
+        self.suppressed_index.get() == Some(index)
     }
 
     /// A short vibration, where the browser offers one.
@@ -656,8 +657,10 @@ fn bind_board(document: &Document, app: &Shared) {
         let mut app = shared.borrow_mut();
         // A long press has already done its work and the browser still sends a
         // click after the release. Doing both would flag a square and then open
-        // it, which on a covered square is a lost game.
-        if app.long_press_finished() {
+        // it, which on a covered square is a lost game. The suppression names
+        // the square the long press acted on, so a fast tap anywhere else — or
+        // a second tap right after a long press — is a gesture of its own.
+        if app.suppressed(index) {
             return;
         }
         app.tap(index);
@@ -685,11 +688,11 @@ fn bind_board(document: &Document, app: &Shared) {
         //   below is going to handle it, so acting now would flag the square and
         //   then have the timer undo it — which is exactly the "long press does
         //   nothing" this had.
-        // * The timer has already fired: the same gesture, arriving late.
-        //
-        // A real right click arms no press at all (`pointerdown` returns early
-        // for a secondary button), which is why this test distinguishes the two.
-        if app.press_armed() || app.long_press_finished() {
+        // * The timer has already fired: the same gesture, arriving late. The
+        //   suppression names the square the long press acted on; a real right
+        //   click arms no press at all (`pointerdown` returns early for a
+        //   secondary button), which is what keeps the two cases apart.
+        if app.press_armed() || app.suppressed(index) {
             return;
         }
         app.flag(index);
@@ -744,6 +747,10 @@ fn bind_press(board: &Element, app: &Shared) {
         // the first finger began.
         {
             let mut app = shared.borrow_mut();
+            // A new gesture ends the last one's suppression: whatever trailing
+            // events were still owed have been sent or superseded, and this
+            // press is the reader's next move, not the old gesture's echo.
+            app.suppressed_index.set(None);
             let still_a_press = app.pointer_down(
                 event.pointer_id(),
                 f64::from(event.client_x()),
@@ -771,8 +778,7 @@ fn bind_press(board: &Element, app: &Shared) {
             if press.index != index {
                 return;
             }
-            app.long_press_until
-                .set(js_sys::Date::now() + f64::from(SUPPRESS_MS));
+            app.suppressed_index.set(Some(index));
             app.long_press(index);
         });
         let Ok(handle) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
