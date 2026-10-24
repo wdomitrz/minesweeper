@@ -11,7 +11,7 @@
      variant, so it would override both of these. -->
 <meta name="theme-color" content="#f2f4f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
-<meta name="description" content="Minesweeper with four board sizes, flags, a clock and a zoomable board, that works offline.">
+<meta name="description" content="Minesweeper with four board sizes, flags and a clock, that works offline.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Minesweeper</title>
 <link rel="manifest" href="./manifest.webmanifest">
@@ -51,29 +51,25 @@
      every change. Their names come from the app too, because a square's text is
      one digit and a digit alone ("3") never says where it is.
 
-     The wrapper is the scroll container *and* the zoom: a pinch inside it (or
-     the two buttons below) sets a scale, and at anything above 1 the board
-     overflows and is panned by drag. It is sized by the flex row below it, which
-     is why it is the only part of this column allowed to grow. -->
+     The wrapper is the scroll container: a board bigger than the screen is
+     scrolled, and a finger on it pinches the *page*, which is the browser's own
+     zoom and better than anything this app could draw. -->
 <div class="board-wrap">
   <div id="board" role="group" aria-labelledby="title" aria-describedby="status"></div>
 </div>
 
-<!-- The fold control, outside the header so that it survives the fold it
-     causes. In board-only mode it is the only thing on screen besides the
-     board, and it is what gets the reader back out — a mode with no visible way
-     out is a trap, not a mode. -->
-<input id="focus" type="checkbox" class="focus-toggle visually-hidden">
-<label for="focus" class="icon-button" id="focus-label">
+<!-- Full screen: the browser's own, not a page that pretends. A button, because
+     it is an action rather than a state the page can hold; it sits outside the
+     header so it is still there when the chrome is hidden. -->
+<button id="fullscreen" type="button" class="icon-button">
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
     <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>
   </svg>
-  <!-- The name of what tapping it does, written by the app: it is "Board only"
-       while the chrome is showing and "Show controls" while it is not, because a
-       label describes the action, not the state the reader is already in. A
-       screen reader hears this; the glyph is what a sighted reader sees. -->
-  <span class="visually-hidden" id="focus-label-text">Board only</span>
-</label>
+  <!-- What tapping it does, written by the app: "Full screen" while the browser
+       is windowed, "Leave full screen" while it is not. A label describes the
+       action, not the state the reader is already in. -->
+  <span class="visually-hidden" id="fullscreen-label">Full screen</span>
+</button>
 
 <div class="tools">
   <!-- Flag mode, not a gesture: on a phone there is no right button to hold, and
@@ -83,18 +79,6 @@
        checkbox cannot be given an `aria-pressed` state a screen reader reads as
        a mode. -->
   <button id="flag" type="button" aria-pressed="false">Flag</button>
-  <!-- Zoom lives with the controls rather than over the board: a board of
-       24-pixel squares cannot spare two of them, and a control that covers the
-       thing it magnifies is the opposite of helpful. The icon and the name are
-       separate elements so the words can be hidden on a narrow screen without
-       the button losing its accessible name — an `aria-label` would be a second
-       name for a control that already has one, and the two would drift. -->
-  <button id="zoom-out" type="button">
-    <span aria-hidden="true">&minus;</span><span class="visually-hidden">Zoom out</span>
-  </button>
-  <button id="zoom-in" type="button">
-    <span aria-hidden="true">+</span><span class="visually-hidden">Zoom in</span>
-  </button>
   <label class="level" for="level"><span>Board</span>
     <select id="level">
       <option value="beginner">Beginner</option>

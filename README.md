@@ -53,14 +53,13 @@ yet flagged, and the clock starts on the first square you open rather than when
 the page loads.
 
 **The board is the app.** It takes the whole screen: the title and the clock sit
-above it, the controls below, and the board gets everything in between. Tap the
-frame-shaped button at the top right to fold the chrome away and give the board
-every pixel, and tap it again to bring the controls back.
+above it, the controls below, and the board gets everything in between.
 
-**Zoom** with a pinch on the board, with the **−** and **+** buttons, or with
-ctrl-scroll on a desktop. The default is the whole board as large as it fits;
-zoom in and the board is panned by dragging. Zoom is a layout size rather than a
-magnified picture, so the numbers stay sharp at every step.
+Tap the frame-shaped button at the top right for **full screen** — the browser's
+own, so the address bar, the tab strip and the system bars go away and the board
+gets the display. Your browser's zoom works there as it does anywhere else:
+pinch to magnify the board, drag to look around it. The button's name says which
+way it goes, and Escape works too.
 
 **A long press does the other thing.** Hold a square to flag it; hold one while
 the board is in flag mode and it opens instead. Neither mode costs a trip to the

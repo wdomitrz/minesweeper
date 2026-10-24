@@ -121,6 +121,20 @@ rule set is tested natively.
   construction — and a square is looked up by index only when something about it
   changes. The paint's cache is the class string alone, because the glyph and the
   spoken name are functions of it.
+- **Full screen is the browser's, and the app has no zoom of its own.** A CSS
+  fold that hid the app's own chrome was worse than useless: it took away the
+  browser's pinch-zoom along with the browser's chrome, and then had to grow a
+  zoom of its own to put back what it had removed — a zoom that relaid out nine
+  thousand squares per frame and took two seconds a frame on a 99×99 board.
+  `request_fullscreen` on `<html>` gives the display *and* leaves the browser's
+  zoom intact, which is better than anything a canvas of buttons can draw. The
+  control is a button, not a checkbox, because full screen is browser state that
+  Escape and the system can also change; its name is read from
+  `document.fullscreenElement` and repainted on `fullscreenchange`, never
+  remembered in a flag.
+- **`touch-action: manipulation` on the board and its squares.** Not `none` —
+  that stops the browser panning a board bigger than the screen — and not left
+  off, because the browser's pinch-zoom is the feature now.
 - **The board is a layout size, not a transform.** Zoom multiplies one custom
   property (`--zoom`) that the square size derives from, so the grid, the gaps
   and the glyph all follow from it and the numbers stay crisp. A `transform`
@@ -173,6 +187,13 @@ The rules themselves are tested in `src/minefield.rs` and `src/game.rs` — the
 safe first click at corners, edges and the middle on all three boards, the
 neighbour counts against a plain count, floods, the flag ceiling, win and loss,
 the clock's cap, the prose, and every malformed stored game.
+
+**Full screen verified in a real browser on 2026-10-24**: a genuine click enters
+full screen (`document.fullscreenElement` is `<html>`), the board fills the
+measurements the browser reports, playing still works inside it, the control
+reads "Leave full screen" and is marked pressed, clicking again leaves, and
+Escape leaves *and* repaints the name — which is the case a remembered flag would
+get wrong.
 
 **Gestures and chording, verified in the same browser harness on 2026-10-24**:
 a tap opens; a long press flags exactly once (not flag-then-open, which is what
