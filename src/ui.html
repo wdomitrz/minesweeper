@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Two theme colours, one per scheme, and no single one that has to guess: an
+     installed app's status bar is painted from these, so one hardcoded value
+     would put a dark bar over a light page (or the reverse) until the reader
+     changed their phone. The manifest deliberately carries no `theme_color` for
+     the same reason — an installed app's chrome cannot express a scheme
+     variant, so it would override both of these. -->
+<meta name="theme-color" content="#f2f4f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Minesweeper with three classic board sizes, flags and a clock, that works offline.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Minesweeper</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<!-- The SVG is the icon: the committed source of truth, scaled by the browser.
+     The PNGs beside it are rasterized from this same file at build time, for
+     the manifest and for iOS. -->
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header>
+  <h1 id="title">Minesweeper</h1>
+</header>
+
+<!-- The two facts about this game. Each is labelled by a short caption rather
+     than by a glyph, because "10" beside a flag icon is only obvious if the
+     reader already knows the game. Neither is a live region: the changes are
+     the point of the board, and announcing every tick would be unbearable
+     with a screen reader. #status below is the one live region. -->
+<div class="facts">
+  <span class="fact"><span class="fact-label">Mines left</span> <strong id="remaining">10</strong></span>
+  <span class="fact"><span class="fact-label">Time</span> <strong id="clock">00:00</strong></span>
+</div>
+
+<!-- The board: as many buttons as the level has squares, written by the app on
+     every change. Their names come from the app too, because a square's text is
+     one digit and a digit alone ("3") never says where it is. The wrapper is
+     the scroll container: Expert is 30 squares wide and is not going to be
+     squeezed onto a phone. -->
+<div class="board-wrap">
+  <div id="board" role="group" aria-labelledby="title" aria-describedby="status"></div>
+</div>
+
+<div class="tools">
+  <!-- Flag mode, not a gesture: on a phone there is no right button to hold, and
+       a long press is a gesture nobody discovers. Pressed means the next tap
+       marks a square instead of opening it. A checkbox would work without a
+       listener, but this also has to be disabled when the game is over, and a
+       checkbox cannot be given an `aria-pressed` state a screen reader reads as
+       a mode. -->
+  <button id="flag" type="button" aria-pressed="false">Flag</button>
+  <label class="level" for="level"><span>Board</span>
+    <select id="level">
+      <option value="beginner">Beginner</option>
+      <option value="intermediate">Intermediate</option>
+      <option value="expert">Expert</option>
+    </select>
+  </label>
+  <button id="new" type="button">New game</button>
+</div>
+
+<!-- What just happened, in words, for anyone who is not watching the board.
+     Empty until there is something to say: a live region that ships with text
+     in it announces that text on load, which is noise. -->
+<p id="status" role="status" aria-live="polite"></p>
+<p id="error" role="alert" hidden></p>
+
+<noscript>This game needs JavaScript enabled. Turn it on and reload to play.</noscript>
+<!-- The one script in the document: it hands over to the generated bindings and
+     does nothing else. No state, no rendering, no event handling — everything
+     below the import is the failure message for the case where the app never
+     loads, which is a real case worth saying something about. -->
+<script type="module">
+import('./app.js').then(m => m.default()).catch(error => {
+  const box = document.getElementById('error');
+  box.hidden = false;
+  box.textContent = 'Minesweeper could not start. Reload the page, or check your connection. ' + error;
+});
+</script>
+</body>
+</html>

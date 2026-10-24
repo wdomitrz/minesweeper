@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Minesweeper">
+  <!-- The icon: a mine, sized the way the bot's own icon is sized.
+
+       The drawing sits inside the maskable safe zone. Android crops an
+       installed app's icon with whatever mask the launcher uses — a circle, a
+       squircle, a rounded square — and only the middle 80% of the image is
+       guaranteed to survive it, so anything drawn up to the edges loses its
+       edges. The glyph below is 320 of 512 — 62.5%, the proportion the family
+       uses — which leaves room for the mask, for the launcher's own padding,
+       and for the icon to look deliberate rather than clipped.
+
+       One colour, `#606060`, on a transparent ground — the whole family's icon
+       colour. A static icon is drawn on surfaces it cannot know, so the bar is
+       the 3:1 for a graphical object rather than the 4.5:1 for text: `#606060`
+       reaches 5.82:1 on the light surface and 3.00:1 on the dark one. Every
+       install icon is rasterized from this file at build time; this is the
+       source of truth, never a PNG.
+
+       The body and its highlight are one path, not a circle with a white dot on
+       it: the highlight is punched *out*, so it is the launcher's own background
+       showing through, and the icon stays a single fill. A mask or a second
+       colour would do the same job with two more values in the file, and a test
+       asserts this file has exactly one.
+
+       Two details come from looking at the rasterized PNG rather than at this
+       source, and both are the difference between a mine and something else:
+
+       * The spikes start at the body's edge and point *outward*. Drawn through
+         the centre instead, they show through the punched highlight — the hole
+         reveals whatever is behind the body — and the hole renders as a lens.
+       * The spikes are shorter than the body is wide. At full length the shape
+         reads as a sun, at launcher size and at full size alike; short and thick
+         with the body clearly dominant is what makes it a mine. -->
+  <g stroke="#606060" stroke-width="30" stroke-linecap="round" fill="none">
+    <path d="M156 256h-36M356 256h36M256 156v-36M256 356v36"/>
+    <path d="M185 185l-27-27M327 185l27-27M185 327l-27 27M327 327l27 27"/>
+  </g>
+  <!-- Radius 100 around (256,256), with a 24-radius hole at (223,223) for the
+       highlight — up and to the left, where light comes from. Each circle is two
+       half arcs; `evenodd` is what makes the second one a hole rather than a
+       filled disc. -->
+  <path
+    fill="#606060"
+    fill-rule="evenodd"
+    d="M156 256a100 100 0 1 0 200 0a100 100 0 1 0-200 0z
+       M199 223a24 24 0 1 0 48 0a24 24 0 1 0-48 0z"/>
+</svg>
