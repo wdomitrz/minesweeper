@@ -2535,6 +2535,41 @@ fn every_level_is_offered_and_the_board_can_scroll() {
     }
 }
 
+/// Every level draws its squares with the same rules.
+///
+/// There used to be a second style for the 99x99 board — a flat fill, a hairline
+/// gap, no bevel — on the reasoning that 9801 raised tiles read as woven fabric.
+/// What that produced was three different-looking games, and the reader noticed
+/// before any test did. The right answer to "too many little bevels" is a floor
+/// on the square's size, which the board has, not a second look for one level.
+#[test]
+fn every_level_draws_its_squares_the_same_way() {
+    let css = style();
+    assert!(
+        !css.contains("data-dense"),
+        "no level may get a style of its own: squares look the same at every size"
+    );
+    let ui = std::fs::read_to_string(root().join("src/ui.rs")).expect("src/ui.rs");
+    assert!(
+        !ui.contains("data-dense"),
+        "and nothing may mark a board as needing one"
+    );
+    // The gap and the radius belong to the board and the square, once.
+    let board = css
+        .split_once("#board {")
+        .expect("the board rule")
+        .1
+        .split_once('}')
+        .expect("the end of the rule")
+        .0;
+    assert!(board.contains("--gap: 2px"), "one gap, for every level");
+    // And the floor that made the second style unnecessary is still there.
+    assert!(
+        board.contains("--min-cell: 24px"),
+        "the square's floor is what keeps a dense board legible"
+    );
+}
+
 /// Nothing in the app takes a gesture the browser needs.
 ///
 /// The board is bigger than the screen at two of its four sizes, so panning and
@@ -2555,32 +2590,9 @@ fn the_app_leaves_panning_and_pinch_to_the_browser() {
         "and it must say so rather than inherit it: `touch-action` is per element, \
          and a pointer that lands on a square is governed by the square"
     );
-    // A dense board's floor is the same as every other board's. It used to be
-    // 14px, which is not a square a thumb can aim at.
-    let dense = const_block(&css, "min-cell").unwrap_or_default();
-    assert_eq!(
-        dense, "24px",
-        "a dense square must be at least 24px — the same floor as every other \
-         board — or it cannot be tapped; found {dense:?}"
-    );
-}
-
-/// The dense board's floor, read out of its own block rather than guessed.
-fn const_block(css: &str, name: &str) -> Option<String> {
-    let block = css
-        .split_once("#board[data-dense] {")
-        .map(|(_, rest)| rest.split_once('}').map(|(body, _)| body.to_string()))??;
-    let line = block
-        .lines()
-        .find(|line| line.trim_start().starts_with(&format!("--{name}:")))?;
-    Some(
-        line.split_once(':')?
-            .1
-            .trim()
-            .trim_end_matches(';')
-            .trim()
-            .to_string(),
-    )
+    // The square's floor is asserted once, in
+    // `every_level_draws_its_squares_the_same_way`: there is one floor now, not
+    // a general one and a dense one.
 }
 
 /// A long press does the other action, once — and a phone's `contextmenu` is not
