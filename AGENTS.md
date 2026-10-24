@@ -121,6 +121,30 @@ rule set is tested natively.
   construction — and a square is looked up by index only when something about it
   changes. The paint's cache is the class string alone, because the glyph and the
   spoken name are functions of it.
+- **The board is a layout size, not a transform.** Zoom multiplies one custom
+  property (`--zoom`) that the square size derives from, so the grid, the gaps
+  and the glyph all follow from it and the numbers stay crisp. A `transform`
+  would paint a bigger picture of a small one.
+- **The fit divides measured pixels, not percentages.** `--fit-w`/`--fit-h` feed
+  `grid-template-columns`, and a percentage there resolves against a width the
+  columns themselves decide — the browser treats it as zero and the board
+  collapses to its floor. `fit_canvas` measures the box and writes
+  `--canvas-w`/`--canvas-h`; a `ResizeObserver` on the wrapper keeps them right
+  through a fold, a rotation and a level change, reading the size from the
+  observer's own entry rather than the DOM inside the callback (which is what
+  makes a resize loop).
+- **The page is one screen and never scrolls.** `height: 100dvh` and
+  `overflow: hidden`, with the board's box the only flexible item, bounded to a
+  square of the space (`--wrap-h`) so a portrait phone does not get a band of
+  nothing between the board and the controls.
+- **A long press is 600ms, not 450.** The board always scrolls now, so a pan
+  starts on a square and every pan begins with a press; at 450ms a deliberate pan
+  could cross the threshold before the finger moved, and flag a square mid-pan.
+  The drift slop came down to 6px for the same reason.
+- **The status line reports changes, not arithmetic.** "That 2 has only 1 of the
+  2 flags it needs" was removed for the same reason: the reader put those flags
+  there and can see how many there are. Only a chord that *could not run* is
+  silent; one that runs and loses still ends the game, and that is reported.
 - **Geometry is fluid, not computed.** The board's width is `100%` clamped
   between `cols × 24px` and `cols × 40px`, the columns are `minmax(0, 1fr)`, and
   each square is `aspect-ratio: 1`. An earlier version derived the square size

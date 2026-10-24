@@ -634,21 +634,26 @@ impl Report {
         match self {
             Self::Nothing | Self::Opened(0 | 1) => String::new(),
             Self::Opened(count) => format!("Opened {count} squares."),
-            Self::AlreadyOpen => "That square is already open.".to_owned(),
-            Self::AlreadyFlagged => {
-                "That square is flagged. Remove the flag to open it.".to_owned()
-            }
+            // Also silent, and for the same reason as a chord that cannot run:
+            // tapping an open square is how a chord is attempted, so most of
+            // these arrive in the middle of playing and say nothing the reader
+            // did not just do. A flagged square is visibly flagged.
+            //
+            // (Both were removed on 2026-10-24 after the sentences showed up as
+            // narration. The variants stay: they are the rule's answers, and the
+            // tests assert which one came back.)
+            Self::AlreadyOpen | Self::AlreadyFlagged => String::new(),
             Self::AllFlagsPlaced(mines) => {
                 format!("All {mines} flags are placed. Remove one to mark another.")
             }
-            Self::FlagsDoNotMatch {
-                count, flagged: 0, ..
-            } => format!("That {count} has no flags beside it yet."),
-            Self::FlagsDoNotMatch {
-                count,
-                flagged,
-                wanted,
-            } => format!("That {count} has only {flagged} of the {wanted} flags it needs."),
+            // A chord that cannot run is not news. The reader can see how many
+            // flags are beside the number — they put them there, one at a time,
+            // seconds ago — so a sentence counting them back is a status line
+            // narrating what the board already shows. This was tried and read as
+            // noise ("That 2 has only 1 of the 2 flags it needs"), which is why
+            // the words are empty here: the pattern is still returned, because
+            // the *rule* refused the move and the tests say so.
+            Self::FlagsDoNotMatch { .. } => String::new(),
             Self::Won(seconds) => outcome_words(Status::Won, *seconds),
             Self::Lost => outcome_words(Status::Lost, 0),
         }
@@ -934,10 +939,10 @@ mod tests {
             "{report:?}"
         );
         assert_eq!(game.cover, before, "nothing may open without the flags");
-        assert!(!report.words().is_empty());
         assert!(
-            report.words().contains("no flags beside it"),
-            "{}",
+            report.words().is_empty(),
+            "a chord that cannot run must say nothing: it narrates what the board \
+             already shows. Said {:?}",
             report.words()
         );
     }
@@ -978,7 +983,7 @@ mod tests {
             "over-flagging must not be acted on either: {report:?}"
         );
         assert_eq!(game.cover, before);
-        assert!(!report.words().is_empty());
+        assert!(report.words().is_empty());
     }
 
     #[test]
@@ -1154,16 +1159,13 @@ mod tests {
         let mut game = Game::new(Level::Beginner, 4);
         game.flag(0);
         assert_eq!(game.reveal(0), Report::AlreadyFlagged);
-        assert_eq!(
-            game.reveal(0).words(),
-            "That square is flagged. Remove the flag to open it."
-        );
+        assert_eq!(game.reveal(0).words(), "");
 
         let mut game = Game::new(Level::Beginner, 4);
         game.reveal(0);
         assert_eq!(game.flag(0), Report::AlreadyOpen);
         assert_eq!(game.reveal(0), Report::AlreadyOpen);
-        assert_eq!(game.reveal(0).words(), "That square is already open.");
+        assert_eq!(game.reveal(0).words(), "");
     }
 
     #[test]

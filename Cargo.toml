@@ -30,11 +30,14 @@ js-sys = "0.3.105"
 # The subset this app actually uses. Do not paste a superset: every feature
 # pulls generated bindings you do not need into the wasm.
 web-sys = { version = "0.3.105", features = [
-  "Window", "Document", "Element", "HtmlButtonElement", "HtmlSelectElement",
-  "HtmlCollection", "Node", "Event", "EventTarget", "KeyboardEvent",
-  "PointerEvent", "Navigator", "Storage", "StorageManager",
-  "ServiceWorkerContainer", "ServiceWorkerRegistration", "ServiceWorker",
-  "ServiceWorkerState", "RegistrationOptions", "console", "Location", "Url"
+  "Window", "Document", "Element", "HtmlButtonElement", "HtmlSelectElement", "HtmlInputElement",
+  "HtmlCollection", "Node", "CssStyleDeclaration", "HtmlElement", "Event",
+  "EventTarget", "KeyboardEvent", "PointerEvent", "WheelEvent",
+  "AddEventListenerOptions", "ResizeObserver", "ResizeObserverEntry",
+  "ResizeObserverSize", "Navigator", "Storage",
+  "StorageManager", "ServiceWorkerContainer", "ServiceWorkerRegistration",
+  "ServiceWorker", "ServiceWorkerState", "RegistrationOptions", "console",
+  "Location", "Url"
 ] }
 
 [lints.rust]
