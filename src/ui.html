@@ -58,19 +58,6 @@
   <div id="board" role="group" aria-labelledby="title" aria-describedby="status"></div>
 </div>
 
-<!-- Full screen: the browser's own, not a page that pretends. A button, because
-     it is an action rather than a state the page can hold; it sits outside the
-     header so it is still there when the chrome is hidden. -->
-<button id="fullscreen" type="button" class="icon-button">
-  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>
-  </svg>
-  <!-- What tapping it does, written by the app: "Full screen" while the browser
-       is windowed, "Leave full screen" while it is not. A label describes the
-       action, not the state the reader is already in. -->
-  <span class="visually-hidden" id="fullscreen-label">Full screen</span>
-</button>
-
 <div class="tools">
   <!-- Flag mode, not a gesture: on a phone there is no right button to hold, and
        a long press is a gesture nobody discovers. Pressed means the next tap
