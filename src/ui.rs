@@ -71,11 +71,6 @@ const LONG_PRESS_MS: i32 = 600;
 /// is not a gesture anyone makes on purpose.
 const SUPPRESS_MS: i32 = 700;
 
-/// Above this many squares, a board is drawn dense: no lighting per square and a
-/// one-pixel gap, because the alternative is 9801 little raised buttons which
-/// reads as woven fabric rather than as a board.
-const DENSE_CELLS: usize = 2_000;
-
 /// How far a finger may drift, in CSS pixels, before a press stops being a press.
 ///
 /// A thumb resting on a square moves a little; a finger that is scrolling moves
@@ -235,16 +230,6 @@ impl App {
             "style",
             &format!("--cols:{};--rows:{}", level.width(), level.height()),
         )?;
-        // A board this size is drawn dense: smaller squares, a smaller gap, and
-        // no per-square lighting, because 9801 gradients is a texture rather
-        // than a set of buttons. The flag is the level's own property, not a
-        // measurement of the screen: the same level looks the same everywhere.
-        if level.cells() > DENSE_CELLS {
-            board.set_attribute("data-dense", "true")?;
-        } else {
-            board.remove_attribute("data-dense")?;
-        }
-
         let cells = self.game.cells();
         board.set_inner_html(&board_html(&cells)?);
 
@@ -954,15 +939,6 @@ fn fit_canvas(app: &App) {
 fn apply_canvas(app: &App, width: f64, height: f64) {
     let Some(board) = app.board.as_ref() else {
         return;
-    };
-    // A dense board is bigger than any screen by design, so its fit is its floor:
-    // a box of nothing clamps to the minimum square, which is exactly the board
-    // it should build. Fitting it to the viewport instead would need a magic
-    // size, and would be wrong in a document laid out off-screen.
-    let (width, height) = if app.game.level().cells() > DENSE_CELLS {
-        (0.0, 0.0)
-    } else {
-        (width, height)
     };
     if let Ok(board) = board.clone().dyn_into::<web_sys::HtmlElement>() {
         let style = board.style();

@@ -134,6 +134,12 @@ rule set is tested natively.
   appears to do nothing. The handler is gated on `press_armed()` as well as on
   the post-fire suppression window; a real right click arms no press at all
   (`pointerdown` returns early for a secondary button), which is the distinction.
+- **Every level draws its squares with the same rules.** There was a second
+  style for the 99x99 board — flat fill, hairline gap, no bevel — justified by
+  "9801 bevels read as woven fabric". It produced three different-looking games,
+  and the reader noticed before any test did. The answer to too many little
+  bevels is a floor on the square's size, not a second look for one level; the
+  `data-dense` attribute and its rules are gone.
 - **Every board's floor is 24px.** A dense board's used to be 14, which is not a
   square a thumb can aim at. A dense board is always bigger than the screen, so a
   smaller floor never made it fit — it only made it unhittable.
