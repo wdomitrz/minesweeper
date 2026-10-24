@@ -512,7 +512,13 @@ fn no_status_line_is_frozen() {
             let rest = &page[at + 4..];
             rest.find('"').map(|end| &rest[..end])
         })
-        .filter(|id| !matches!(*id, "title" | "error"))
+        .filter(|id| {
+            // `#error` is the failure box, filled by the loader's catch and
+            // hidden until then. `#focus-label` is a label whose own text lives
+            // in the element inside it, which *is* written by the app — the
+            // label's direct text is only the glyph, and a glyph is decoration.
+            !matches!(*id, "title" | "error" | "focus-label")
+        })
         .collect();
     shown.sort_unstable();
 
@@ -586,7 +592,35 @@ fn the_button_has_one_consistent_name() {
         if close < tag_end {
             continue;
         }
-        let name = from_button[tag_end + 1..close].trim().to_string();
+        // The name a reader sees is the button's *text*, which may be split
+        // across spans: one of them may be an icon (aria-hidden) and one a
+        // short label for a narrow screen (also aria-hidden, with the full words
+        // beside it). Take the text of the spans that are not hidden, so the
+        // name is the words rather than the markup around them.
+        let body = &from_button[tag_end + 1..close];
+        let mut name = String::new();
+        let mut rest = body;
+        while let Some(start) = rest.find('<') {
+            name.push_str(&rest[..start]);
+            let Some(end) = rest[start..].find('>') else {
+                break;
+            };
+            let tag = &rest[start..=start + end];
+            let hidden = tag.contains("aria-hidden=\"true\"")
+                || tag.contains("class=\"narrow-only\"")
+                || tag.contains("class=\"visually-hidden\"");
+            if hidden {
+                // Skip the element's own text entirely.
+                let Some(shut) = rest[start + end..].find("</span>") else {
+                    break;
+                };
+                rest = &rest[start + end + shut + 7..];
+            } else {
+                rest = &rest[start + end + 1..];
+            }
+        }
+        name.push_str(rest);
+        let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
         if !name.is_empty() {
             control_names.push(name);
         }
@@ -2474,10 +2508,145 @@ fn every_level_is_offered_and_the_board_can_scroll() {
         css.contains("overflow: auto"),
         "the board must scroll on both axes: 99 squares wide does not fit a phone"
     );
+    // The page itself must not scroll. A board that scrolls inside its own box is
+    // what keeps the clock and the controls where the reader left them; a page
+    // that scrolls puts them a screen away on the boards that need them most.
     assert!(
-        css.contains("max-height:"),
-        "a tall board must scroll inside its own box, or the controls leave the screen"
+        css.contains("height: 100dvh") && css.contains("overflow: hidden"),
+        "the page must be one screen, with the board scrolling inside it"
     );
+    // And the board's box has to be the flexible one: the whole layout depends on
+    // it being the only thing that grows. Asserted over every `.board-wrap` rule
+    // in the file, not the first one: there are two — the base rule and the
+    // board-only override — and splitting on the first `}` finds whichever
+    // selector happens to come first, which is how this check passed on the
+    // wrong block once already.
+    assert!(
+        css.contains("flex: 0 1 var(--wrap-h, auto)"),
+        "the board's box must take the space the chrome leaves, bounded to a square \
+         so a portrait phone does not get a band of nothing under the board"
+    );
+    assert!(
+        css.contains("--wrap-h"),
+        "the square bound must be a measured number, set by `fit_canvas`"
+    );
+}
+
+/// The board is zoomable, by gesture and by control, and the zoom is one number.
+///
+/// The alternative — a CSS `transform` — is cheaper to paint and wrong here: it
+/// scales rasterised text, and sharp is the whole point of zooming a board of
+/// numbers. So the zoom must reach the square size, and the square size must be
+/// the only thing it reaches.
+#[test]
+fn the_board_is_zoomable_and_zoom_reaches_the_square_size() {
+    let css = style();
+    let board = css
+        .split_once("#board {")
+        .expect("the board rule")
+        .1
+        .split_once('}')
+        .expect("the end of the rule")
+        .0;
+    assert!(
+        board.contains("--cell: calc(var(--fit) * var(--zoom, 1))"),
+        "the square size must be the fit multiplied by the zoom"
+    );
+    assert!(
+        board.contains("grid-template-columns: repeat(var(--cols), var(--cell))")
+            && board.contains("grid-auto-rows: var(--cell)"),
+        "both axes must take the zoomed square, or squares stop being square"
+    );
+    assert!(
+        !board.contains("transform:"),
+        "a transform would scale the glyphs as a bitmap: zoom must change the \
+         layout size, not paint a bigger picture of a small one"
+    );
+    // The fit is two measured pixels, not percentages: a percentage in
+    // `grid-template-columns` resolves against a width the columns decide, so the
+    // board collapses to its floor and the fit silently does nothing.
+    assert!(
+        board.contains("var(--canvas-w") && board.contains("var(--canvas-h"),
+        "the fit must divide measured pixel boxes"
+    );
+    assert!(
+        !board.contains("calc((100% "),
+        "a percentage in the column sizing is circular; measure it in ui.rs"
+    );
+
+    let ui = strip_rust_comments(
+        &std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs"),
+    );
+    for required in [
+        "set_timeout_with_callback_and_timeout_and_arguments_0",
+        "fn set_zoom(",
+        "fn zoom_step(",
+        "ZOOM_STEPS",
+        "pointer_moved",
+        // A second finger is a pinch, and a pinch must never become a flags.
+        "fn pointer_down(",
+        "\"wheel\"",
+        "ctrl_key()",
+        "ResizeObserver",
+    ] {
+        assert!(ui.contains(required), "src/ui.rs has no {required}");
+    }
+    // Zoom has to be applied as one custom property: anything else would have to
+    // re-render ten thousand squares on every frame of a pinch.
+    let set = ui
+        .split_once("fn set_zoom(")
+        .expect("the zoom setter")
+        .1
+        .split_once("\n    }\n")
+        .expect("the end of the setter")
+        .0;
+    assert!(
+        set.contains("set_property(\"--zoom\"")
+            && !set.contains("paint")
+            && !set.contains("build_board"),
+        "the zoom must be one property write, not a re-render"
+    );
+
+    // And the controls exist in the shell, named in words rather than symbols.
+    let page = shell();
+    assert!(page.contains("id=\"zoom-in\"") && page.contains("id=\"zoom-out\""));
+    assert!(
+        page.contains(">Zoom out<") && page.contains(">Zoom in<"),
+        "the zoom buttons must carry their name in the markup, not only a glyph"
+    );
+}
+
+/// The fold control is a way out of the mode it puts the page in.
+///
+/// Board-only mode hides everything but the board, so a control that hid with it
+/// would leave a reader with no visible way back — a mode with no exit is a trap.
+#[test]
+fn board_only_has_a_way_out_and_names_its_action() {
+    let page = shell();
+    let css = style();
+    // The control is outside the header, which is what folds away.
+    let header = page
+        .split_once("<header>")
+        .expect("the header")
+        .1
+        .split_once("</header>")
+        .expect("the end of the header")
+        .0;
+    assert!(
+        !header.contains("id=\"focus\""),
+        "the fold control must not live in the header: board-only mode hides the \
+         header, and the way out would hide with it"
+    );
+    assert!(page.contains("id=\"focus\" type=\"checkbox\""));
+    assert!(
+        css.contains("body:has(#focus:checked)") && css.contains("display: none"),
+        "the fold must be a CSS state, not a script class that can disagree"
+    );
+    // Its name is the action, and the action changes with the state: the app
+    // writes both, so neither can be a leftover.
+    let ui = std::fs::read_to_string(root().join("src/ui.rs")).expect("src/ui.rs");
+    assert!(ui.contains("\"focus-label-text\""));
+    assert!(ui.contains("\"Show controls\"") && ui.contains("\"Board only\""));
 }
 
 /// Both workflows run the same site check, on the same output.

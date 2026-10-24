@@ -52,6 +52,16 @@ opens everything reachable from it. The counter above the board is the mines not
 yet flagged, and the clock starts on the first square you open rather than when
 the page loads.
 
+**The board is the app.** It takes the whole screen: the title and the clock sit
+above it, the controls below, and the board gets everything in between. Tap the
+frame-shaped button at the top right to fold the chrome away and give the board
+every pixel, and tap it again to bring the controls back.
+
+**Zoom** with a pinch on the board, with the **−** and **+** buttons, or with
+ctrl-scroll on a desktop. The default is the whole board as large as it fits;
+zoom in and the board is panned by dragging. Zoom is a layout size rather than a
+magnified picture, so the numbers stay sharp at every step.
+
 **A long press does the other thing.** Hold a square to flag it; hold one while
 the board is in flag mode and it opens instead. Neither mode costs a trip to the
 button, and a press that turns into a scroll does nothing.
