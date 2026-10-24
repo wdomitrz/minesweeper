@@ -53,13 +53,9 @@ yet flagged, and the clock starts on the first square you open rather than when
 the page loads.
 
 **The board is the app.** It takes the whole screen: the title and the clock sit
-above it, the controls below, and the board gets everything in between.
-
-Tap the frame-shaped button at the top right for **full screen** — the browser's
-own, so the address bar, the tab strip and the system bars go away and the board
-gets the display. Your browser's zoom works there as it does anywhere else:
-pinch to magnify the board, drag to look around it. The button's name says which
-way it goes, and Escape works too.
+above it, the controls below, and the board gets everything in between. A board
+bigger than the screen — Expert and Insane are — is panned by dragging, and your
+browser's own pinch-zoom magnifies it.
 
 **A long press does the other thing.** Hold a square to flag it; hold one while
 the board is in flag mode and it opens instead. Neither mode costs a trip to the

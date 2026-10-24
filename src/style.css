@@ -355,13 +355,16 @@ h1 {
   cursor: default;
 }
 
-/* A dense board drops the lighting and keeps the two states: at 14 pixels a
-   tile's bevel is a stripe, and 9801 gradients is a texture, not a set of
-   buttons. The gap shrinks with the squares so the grid lines stay hairlines. */
+/* A dense board drops the lighting and keeps the two states: 9801 bevels is a
+   texture, not a set of buttons. The gap shrinks to a hairline with the squares.
+
+   Its floor is the same 24px every other board gets. It was 14px once, which is
+   not a square a thumb can aim at — the board is always bigger than the screen,
+   so a smaller floor does not make it fit, it only makes it unhittable. */
 #board[data-dense] {
   --gap: 1px;
-  --min-cell: 14px;
-  --max-cell: 22px;
+  --min-cell: 24px;
+  --max-cell: 32px;
 }
 
 #board[data-dense] button {
@@ -417,15 +420,10 @@ h1 {
 /* The tools. Three controls, each at least 44px tall: a thumb on a phone should
    not have to aim, and "New game" sits beside "Flag" rather than under it so
    that neither is hit while reaching for the other. */
-/* A short label for a narrow screen, which is only a visual abbreviation: the
-   full words stay in the accessible name at every width. */
-.narrow-only { display: none; }
-
 .tools {
   width: 100%;
   max-width: var(--board-max);
   display: flex;
-  flex-wrap: wrap;
   gap: .4rem;
   align-items: center;
 }
@@ -475,7 +473,17 @@ h1 {
   font-size: .8rem;
 }
 
+/* The menu takes what is left, so the row never needs to wrap: a `<select>` has
+   an intrinsic width and will not give any of it up on its own. */
+.level { flex: 1 1 auto; min-width: 0; }
+#level { width: 100%; min-width: 0; }
+.tools button { white-space: nowrap; }
+
 #new { margin-left: auto; }
+
+/* A short label for a narrow screen, which is only a visual abbreviation: the
+   full words stay in the accessible name at every width. */
+.narrow-only { display: none; }
 
 /* The status line always occupies its line, so a message never moves the board
    under the reader's finger. It is empty until something happened. */
@@ -499,8 +507,10 @@ h1 {
   font-size: .85rem;
 }
 
-/* Read by a screen reader, never drawn. The classic pattern, with the size
-   collapses that keep it out of the layout rather than merely off-screen. */
+/* Read by a screen reader, never drawn. The classic pattern: a one-pixel box,
+   clipped out, with the size collapses that keep it out of the layout rather
+   than merely off-screen. Without this every square's spoken name is painted
+   over the board. */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -514,31 +524,6 @@ h1 {
   border: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
-}
-
-/* Four controls and a menu on one line is the whole budget of a phone, and the
-   menu is the longest thing here. It gives up its caption before any button
-   gives up its touch size: "Board" labels a select that already reads "Beginner",
-   "Expert" or "Insane", so the word is the only thing on this row that says
-   nothing the row does not already say. */
-@media (max-width: 30rem) {
-  .level span { display: none; }
-  .tools { gap: .25rem; flex-wrap: nowrap; }
-  .tools button,
-  .tools select { padding: 0 .5rem; font-size: .85rem; }
-  /* Still a thumb's target: this is the one control that must not shrink. */
-  .tools button { min-width: 2.5rem; }
-  /* The menu takes what is left rather than what its longest option needs: a
-     `<select>` has an intrinsic width and will not give any of it up on its own,
-     which is what pushed the last button onto a second line. */
-  .level { flex: 1 1 auto; min-width: 0; }
-  #level { width: 100%; min-width: 0; }
-  /* Nothing on this row may wrap or ellipsise: half a word is not a label. */
-  .tools button { white-space: nowrap; }
-}
-
 /* The narrowest phones. The words give way before the touch targets do, and the
    words that give way are the ones the control does not need: "New game" beside
    a board is a new game, and the menu's own text says which board it is
@@ -550,4 +535,10 @@ h1 {
   .tools select { font-size: .8rem; }
   .wide-only { display: none; }
   .narrow-only { display: inline; }
+}
+
+/* Nothing here animates, but a browser extension or a future rule might, and a
+   reader who has asked the system for less motion has asked this page too. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
 }

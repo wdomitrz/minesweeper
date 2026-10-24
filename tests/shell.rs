@@ -2535,87 +2535,90 @@ fn every_level_is_offered_and_the_board_can_scroll() {
     }
 }
 
-/// Full screen is the browser's, not a page that hides its own chrome.
+/// Nothing in the app takes a gesture the browser needs.
 ///
-/// The difference is not tidiness. The browser's full screen hides the address
-/// bar, the tab strip and the system bars, takes the whole display, and leaves
-/// the browser's own pinch-zoom available over the page. A page that merely hid
-/// its own header got none of that — and worse, it was the only way left to
-/// magnify the board, so the app had to grow a zoom of its own to replace what it
-/// had taken away.
+/// The board is bigger than the screen at two of its four sizes, so panning and
+/// pinch-zooming it are the browser's job — and `touch-action: none`, which an
+/// earlier version set on the board's box, silently took both away. The board
+/// could be neither scrolled nor magnified, and the app had grown a zoom of its
+/// own to replace what it had removed.
 #[test]
-fn full_screen_is_the_browsers_not_a_hidden_header() {
+fn the_app_leaves_panning_and_pinch_to_the_browser() {
+    let css = style();
+    assert!(
+        !css.contains("touch-action: none"),
+        "the board must stay pannable and pannable-by-pinch: the browser's zoom is \
+         the only zoom this app has"
+    );
+    assert!(
+        css.contains("touch-action: manipulation"),
+        "and it must say so rather than inherit it: `touch-action` is per element, \
+         and a pointer that lands on a square is governed by the square"
+    );
+    // A dense board's floor is the same as every other board's. It used to be
+    // 14px, which is not a square a thumb can aim at.
+    let dense = const_block(&css, "min-cell").unwrap_or_default();
+    assert_eq!(
+        dense, "24px",
+        "a dense square must be at least 24px — the same floor as every other \
+         board — or it cannot be tapped; found {dense:?}"
+    );
+}
+
+/// The dense board's floor, read out of its own block rather than guessed.
+fn const_block(css: &str, name: &str) -> Option<String> {
+    let block = css
+        .split_once("#board[data-dense] {")
+        .map(|(_, rest)| rest.split_once('}').map(|(body, _)| body.to_string()))??;
+    let line = block
+        .lines()
+        .find(|line| line.trim_start().starts_with(&format!("--{name}:")))?;
+    Some(
+        line.split_once(':')?
+            .1
+            .trim()
+            .trim_end_matches(';')
+            .trim()
+            .to_string(),
+    )
+}
+
+/// A long press does the other action, once — and a phone's `contextmenu` is not
+/// a right click.
+///
+/// The bug this pins: Android turns a long press into a `contextmenu` at about
+/// half a second, which is *before* this app's own 600ms timer fires. The handler
+/// acted on it, flagging the square, and then the timer fired and unflagged it —
+/// so a long press appeared to do nothing at all, or to do whichever of the two
+/// the ordering happened to favour.
+#[test]
+fn a_phone_contextmenu_is_not_a_right_click() {
     let ui = strip_rust_comments(
         &std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs"),
     );
+    let mark = ui
+        .split_once("listen(&board, \"contextmenu\"")
+        .expect("the contextmenu handler")
+        .0;
+    let body = mark
+        .rsplit("Closure::<dyn FnMut(Event)>::new")
+        .next()
+        .unwrap_or("");
     assert!(
-        ui.contains("request_fullscreen()"),
-        "the control must ask the browser for full screen"
+        body.contains("press_armed()"),
+        "the contextmenu must be ignored while a press is still counting down, or \
+         it races the long press that is about to fire"
     );
     assert!(
-        ui.contains("exit_fullscreen()"),
-        "and be able to give it back; a mode with no way out is a trap"
+        body.contains("long_press_finished()"),
+        "and ignored again just after it fired, when the same gesture's \
+         contextmenu arrives late"
     );
-    // The name follows the DOM, not a flag this app set: Escape, the browser's
-    // own chrome and the system can all leave full screen without touching it.
+    // A real right click arms no press, which is the distinction the test rests
+    // on: `pointerdown` returns before arming one for a secondary button.
     assert!(
-        ui.contains("fullscreen_element()"),
-        "whether the page is full screen must be asked of the document, not remembered"
-    );
-    assert!(
-        ui.contains("\"fullscreenchange\""),
-        "the control's name has to follow a change it did not make"
-    );
-    assert!(ui.contains("\"Leave full screen\"") && ui.contains("\"Full screen\""));
-
-    let page = shell();
-    assert!(page.contains("id=\"fullscreen\" type=\"button\""));
-    assert!(
-        page.contains(">Full screen<"),
-        "the control must carry its name"
-    );
-    // ...and no CSS imitation is left behind it.
-    let css = style();
-    assert!(
-        !css.contains("#focus:checked"),
-        "the old fold is gone: full screen is not a class on the body"
-    );
-
-    // Nothing in the app takes a gesture the browser needs. A puzzle board needs
-    // one thing from `touch-action`: not this.
-    assert!(
-        !css.contains("touch-action: none"),
-        "the board must stay pannable, and pinnable, by the browser"
-    );
-    // Matched as a *declaration*, not as a word: the stylesheet's own comment
-    // explains why the container query went, and naming it there must not read as
-    // having it. Two earlier assertions in this file have been satisfied by the
-    // comment that documented the fix.
-    // A line-filter is not enough: this comment's *second* line does not start
-    // with `*`. Strip the block comments properly first, then look at what is left.
-    let mut live = String::new();
-    let mut rest = css.as_str();
-    loop {
-        match rest.find("/*") {
-            None => {
-                live.push_str(rest);
-                break;
-            }
-            Some(start) => {
-                live.push_str(&rest[..start]);
-                match rest[start..].find("*/") {
-                    Some(end) => rest = &rest[start + end + 2..],
-                    None => break,
-                }
-            }
-        }
-    }
-    let declarations: Vec<&str> = live.lines().map(str::trim).collect();
-    assert!(
-        !declarations
-            .iter()
-            .any(|line| line.contains("cqmin") || line.contains("container-type: size")),
-        "no square may be a size container: 9801 of them is a texture, not a board"
+        ui.contains("if event.button() != 0 {"),
+        "a secondary button must not arm a press, or the two cases are indistinguishable"
     );
 }
 

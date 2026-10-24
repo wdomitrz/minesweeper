@@ -265,7 +265,6 @@ impl App {
         self.paint_board();
         self.paint_facts();
         self.paint_tools();
-        self.paint_fullscreen();
     }
 
     /// The button for one square, looked up when it is needed.
@@ -338,35 +337,6 @@ impl App {
         let readout = self.game.readout();
         set_text(&self.document, "clock", &readout.clock);
         set_text(&self.document, "remaining", &readout.remaining);
-    }
-
-    /// Paint the full-screen control's name.
-    ///
-    /// "Full screen" is what tapping it does while the browser is windowed, and
-    /// "Leave full screen" is what it does while it is not. A control named for
-    /// the state the reader is already in reads as a statement, not an action.
-    ///
-    /// Asked of the DOM rather than of a flag here, because full screen can also
-    /// be left with Escape, with the browser's own chrome, or by the system: a
-    /// flag this app set would be wrong the first time the reader did that. The
-    /// `fullscreenchange` listener is what repaints it.
-    fn paint_fullscreen(&self) {
-        let in_full_screen = self.document.fullscreen_element().is_some();
-        set_text(
-            &self.document,
-            "fullscreen-label",
-            if in_full_screen {
-                "Leave full screen"
-            } else {
-                "Full screen"
-            },
-        );
-        if let Some(control) = button(&self.document, "fullscreen") {
-            let _ = control.set_attribute(
-                "aria-pressed",
-                if in_full_screen { "true" } else { "false" },
-            );
-        }
     }
 
     /// Paint the controls whose state is part of the game.
@@ -442,6 +412,20 @@ impl App {
             self.flag(index);
         }
         self.buzz();
+    }
+
+    /// Whether a press is counting down that would become a long press.
+    ///
+    /// The `contextmenu` a phone sends mid-gesture is not a right click, and the
+    /// only way to tell them apart is whether this app is in the middle of
+    /// handling that gesture.
+    fn press_armed(&self) -> bool {
+        let Some(press) = self.press.take() else {
+            return false;
+        };
+        // Put it back: this is a question, not a cancellation.
+        self.press.set(Some(press));
+        true
     }
 
     /// Whether a long press has just finished, and the events the browser sends
@@ -643,7 +627,6 @@ fn start_clock(window: &Window, app: &Shared) {
 /// no framework, no virtual DOM, no diffing.
 fn bind(document: &Document, app: &Shared) {
     bind_board(document, app);
-    bind_fullscreen(document, app);
     bind_tools(document, app);
 }
 
@@ -708,11 +691,20 @@ fn bind_board(document: &Document, app: &Shared) {
         };
         event.prevent_default();
         let mut app = shared.borrow_mut();
-        // Android turns a long press into a `contextmenu` at about half a
-        // second. That is the same gesture this app has already handled, so
-        // acting on it again would flag the square a second time and undo the
-        // flag the reader just made.
-        if app.long_press_finished() {
+        // Two ways a `contextmenu` is not a right click, and both must be
+        // ignored or a long press does its action twice.
+        //
+        // * A press is still armed: Android turns a long press into a
+        //   `contextmenu` at about half a second, which is *before* this app's
+        //   own timer has fired. The gesture is still in progress and the timer
+        //   below is going to handle it, so acting now would flag the square and
+        //   then have the timer undo it — which is exactly the "long press does
+        //   nothing" this had.
+        // * The timer has already fired: the same gesture, arriving late.
+        //
+        // A real right click arms no press at all (`pointerdown` returns early
+        // for a secondary button), which is why this test distinguishes the two.
+        if app.press_armed() || app.long_press_finished() {
             return;
         }
         app.flag(index);
@@ -881,63 +873,6 @@ struct Press {
     y: f64,
     /// The timer to stop if the press ends early.
     timer: i32,
-}
-
-/// Full screen: the browser's own, on the page's `<html>` element.
-///
-/// The browser's, not a CSS imitation, and that is the whole point. Real full
-/// screen hides the address bar, the tab strip and the system bars, takes the
-/// whole display, and — the part no layout can reproduce — leaves the browser's
-/// own pinch-zoom available over the page. A page that merely hid its own chrome
-/// got none of that, and the reader could not magnify the board in it.
-///
-/// Asking for `<html>` rather than `<body>` keeps the page's own scroll and
-/// background; asking for the board would give the board the screen but lose the
-/// stylesheet's page-level rules with it.
-fn bind_fullscreen(document: &Document, app: &Shared) {
-    let Some(control) = button(document, "fullscreen") else {
-        return;
-    };
-    let shared = Rc::clone(app);
-    let toggle = Closure::<dyn FnMut()>::new(move || {
-        let (in_full_screen, root) = {
-            let app = shared.borrow();
-            (
-                app.document.fullscreen_element().is_some(),
-                app.document.document_element(),
-            )
-        };
-        let Some(root) = root else {
-            return;
-        };
-        if in_full_screen {
-            shared.borrow().document.exit_fullscreen();
-            return;
-        }
-        // A refusal is a normal condition — iOS refuses on anything but a video,
-        // and a browser can refuse a request that is not from a user gesture —
-        // and the page is perfectly usable windowed, so it is not reported on
-        // screen.
-        if let Err(error) = root.request_fullscreen() {
-            warn("full screen was refused", &error);
-        }
-    });
-    listen(&control, "click", toggle.as_ref().unchecked_ref());
-    toggle.forget();
-
-    // Escape, the browser's own chrome, or the system can all leave full screen
-    // without touching this control, so the name follows the DOM rather than a
-    // flag the app set.
-    let shared = Rc::clone(app);
-    let changed = Closure::<dyn FnMut()>::new(move || {
-        shared.borrow().paint_fullscreen();
-    });
-    listen(
-        document,
-        "fullscreenchange",
-        changed.as_ref().unchecked_ref(),
-    );
-    changed.forget();
 }
 
 /// Keep the board fitted to the box it lives in, whenever that box changes size.

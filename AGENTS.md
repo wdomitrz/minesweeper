@@ -121,6 +121,22 @@ rule set is tested natively.
   construction — and a square is looked up by index only when something about it
   changes. The paint's cache is the class string alone, because the glyph and the
   spoken name are functions of it.
+- **There is no full-screen control and no zoom of the app's own.** There was
+  both, briefly. The button called `requestFullscreen`, which is the only way to
+  hide the browser's chrome — and it was not worth its place once the board
+  filled the screen anyway: on a phone it bought the browser's chrome and cost a
+  control, and the browser's own full screen is a menu item away. The zoom went
+  because the browser's pinch is better on every axis. Nothing in the app claims
+  `touch-action: none`, so nothing takes either gesture away.
+- **A phone's `contextmenu` is not a right click.** Android raises one about half
+  a second into a long press — *before* this app's own 600ms timer. Acting on it
+  flags the square and then the timer fires and unflags it, so a long press
+  appears to do nothing. The handler is gated on `press_armed()` as well as on
+  the post-fire suppression window; a real right click arms no press at all
+  (`pointerdown` returns early for a secondary button), which is the distinction.
+- **Every board's floor is 24px.** A dense board's used to be 14, which is not a
+  square a thumb can aim at. A dense board is always bigger than the screen, so a
+  smaller floor never made it fit — it only made it unhittable.
 - **Full screen is the browser's, and the app has no zoom of its own.** A CSS
   fold that hid the app's own chrome was worse than useless: it took away the
   browser's pinch-zoom along with the browser's chrome, and then had to grow a
