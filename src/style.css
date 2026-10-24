@@ -1,0 +1,355 @@
+/* One palette, in two schemes, and dark is the default rather than the
+   override. That is the family convention and it is deliberate: `color-scheme`
+   names the scheme the page is *drawn* in, so a reader who has chosen nothing
+   gets the one the app was designed in, and a reader who has chosen gets
+   theirs. Nothing here consults a script, so the choice is made before the first
+   paint — a theme applied after load would flash the wrong one first. */
+:root {
+  color-scheme: dark;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --bg: #0e1116;
+  --surface: #161b22;
+  --surface-2: #1c232c;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --line: #242c37;
+  --line-strong: #414d5e;
+  --accent: #4c9aff;
+  --accent-ink: #04121f;
+  /* A covered square is raised and a little lighter than the page; an open one
+     is flat and darker, so the board reads as a surface being uncovered rather
+     than as a grid of unrelated tiles. */
+  --up: #232c39;
+  --up-edge: #33404f;
+  --down: #12181f;
+  --flag: #ffb454;
+  --mine: #e6edf3;
+  --blast: #5c1f1f;
+  --blast-ink: #ffffff;
+  /* The eight number colours. They have to be told apart at a glance and still
+     reach 4.5:1 on the open-square background, which is why they are not the
+     1992 palette of pure red and pure blue: those fail on both surfaces here. */
+  --n1: #79c0ff;
+  --n2: #56d364;
+  --n3: #ff7b72;
+  --n4: #d2a8ff;
+  --n5: #ffa657;
+  --n6: #56d4dd;
+  --n7: #e6edf3;
+  --n8: #9aa7b4;
+  /* Expert is 30 squares wide, so the widest board this app will ever draw. */
+  --board-max: 56rem;
+}
+
+/* Only custom properties here, `color-scheme` included. A declaration that sets
+   a real property would be a light-only difference in layout or spacing, and
+   there is no such difference: the light scheme changes colours and nothing
+   else. One test asserts exactly that. */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f2f4f7;
+    --surface: #ffffff;
+    --surface-2: #eef1f5;
+    --fg: #1c2128;
+    --muted: #57606a;
+    --line: #d7dde4;
+    --line-strong: #8c959f;
+    --accent: #0b5cd5;
+    --accent-ink: #ffffff;
+    --up: #d5dce4;
+    --up-edge: #b6c0cb;
+    --down: #eef1f5;
+    --flag: #a40e26;
+    --mine: #1c2128;
+    --blast: #ffd7d5;
+    --blast-ink: #1c2128;
+    --n1: #0550ae;
+    --n2: #116329;
+    --n3: #a40e26;
+    --n4: #6f42c1;
+    --n5: #953800;
+    --n6: #0f6674;
+    --n7: #1c2128;
+    --n8: #57606a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { height: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100%;
+  padding: max(.5rem, env(safe-area-inset-top)) .6rem max(.75rem, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .55rem;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.35;
+  /* A board is a tap-target grid: selecting text by dragging across it is
+     always accidental, and a double tap must not zoom the board. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+header {
+  width: 100%;
+  max-width: var(--board-max);
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+
+/* The two facts about the game. The captions are small and quiet; the numbers
+   are the ones a player watches, in a monospaced face so neither of them makes
+   the layout twitch as it counts. */
+.facts {
+  width: 100%;
+  max-width: var(--board-max);
+  display: flex;
+  gap: .75rem;
+  font-family: var(--mono);
+  font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.fact { white-space: nowrap; }
+.fact:last-child { margin-left: auto; }
+.fact strong { color: var(--fg); font-weight: 600; }
+
+/* The scroll container. Expert is 30 squares wide; it scrolls sideways rather
+   than shrinking to an untappable grid. `max-content` on the board with auto
+   margins keeps it centred while it fits and scrollable from its left edge when
+   it does not — centring with flex instead clips the first column. */
+.board-wrap {
+  width: 100%;
+  max-width: var(--board-max);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The board. Its width is the available width clamped to a floor and a ceiling:
+   below the floor a finger cannot pick a square reliably, so a wide board
+   scrolls instead of shrinking, and above the ceiling a 9x9 board would become a
+   row of dinner plates on a desktop. The columns then share that width as
+   equal fractions, and each square takes its height from its own width — so the
+   board is square by construction and nothing can overflow, which is exactly
+   what a size derived from `100vw` minus hand-counted gaps got wrong: the two
+   pixels of padding and eight of gap were never subtracted, and the last column
+   of a 9x9 board hung off the edge.
+
+   The bounds are the square's own size with the gaps counted in, so the floor
+   really is a 24px square and not a 22px one: a gap is 2px and there is one more
+   gap than there are columns, because the board is padded by the same amount. */
+#board {
+  --gap: 2px;
+  --overhead: calc((var(--cols) + 1) * var(--gap));
+  --floor: calc(var(--cols) * 24px + var(--overhead));
+  --ceiling: calc(var(--cols) * 40px + var(--overhead));
+  width: clamp(var(--floor), 100%, var(--ceiling));
+  height: max-content;
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: var(--gap);
+  padding: var(--gap);
+  background: var(--line);
+  border-radius: .4rem;
+}
+
+#board button {
+  /* Every square is a real button: focusable, announced, and tappable without a
+     listener per square. Styling is reset to nothing but a glyph. */
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Square, from the column width alone: no height has to be kept in step with
+     the width anywhere in this file. */
+  aspect-ratio: 1;
+  /* So the glyph below can be sized to the square rather than to the page. */
+  container-type: size;
+  background: var(--up);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 2px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* A covered square is raised; a pressed one sinks. That is the whole affordance
+   a minesweeper board has, and it costs one inset shadow. */
+#board button.hidden {
+  box-shadow: inset 0 1px 0 var(--up-edge), inset 0 -1px 0 rgba(0, 0, 0, .25);
+}
+
+#board button.hidden:active { background: var(--up-edge); }
+
+#board button.revealed {
+  background: var(--down);
+  box-shadow: none;
+  cursor: default;
+}
+
+#board button.flagged { color: var(--flag); }
+#board button.mine { color: var(--mine); }
+#board button.exploded {
+  background: var(--blast);
+  color: var(--blast-ink);
+}
+
+#board button.flagged.mine { color: var(--flag); }
+
+/* The eight number colours, on the open-square background only. */
+#board button.n1 { color: var(--n1); }
+#board button.n2 { color: var(--n2); }
+#board button.n3 { color: var(--n3); }
+#board button.n4 { color: var(--n4); }
+#board button.n5 { color: var(--n5); }
+#board button.n6 { color: var(--n6); }
+#board button.n7 { color: var(--n7); }
+#board button.n8 { color: var(--n8); }
+
+/* Focus is never removed without a replacement: a 30-column board is navigated
+   with arrow keys, and the reader has to see where they are. */
+#board button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+/* The glyph, sized to the square rather than to the page. It has to be *this*
+   element: an element cannot query itself, so `cqmin` on the button resolves
+   against whatever container is above it — there is none, and it silently
+   becomes a viewport unit, which draws a 200px digit in a 38px square. A
+   fallback first, for a browser without container query units, so the
+   degradation is a slightly wrong size rather than a digit spilling out of
+   every square. */
+.face {
+  pointer-events: none;
+  font-size: 1rem;
+  font-size: 52cqmin;
+}
+
+/* The tools. Three controls, each at least 44px tall: a thumb on a phone should
+   not have to aim, and "New game" sits beside "Flag" rather than under it so
+   that neither is hit while reaching for the other. */
+.tools {
+  width: 100%;
+  max-width: var(--board-max);
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  align-items: center;
+}
+
+.tools button,
+.tools select {
+  min-height: 44px;
+  padding: 0 .8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: .4rem;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: .9rem;
+  cursor: pointer;
+}
+
+.tools button:hover,
+.tools select:hover { border-color: var(--accent); }
+
+.tools button:focus-visible,
+.tools select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tools button:disabled {
+  opacity: .5;
+  cursor: default;
+  border-color: var(--line);
+}
+
+/* The pressed state is a mode, so it is painted as one: filled, with the accent
+   that also marks focus. */
+.tools button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.level {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+#new { margin-left: auto; }
+
+/* The status line always occupies its line, so a message never moves the board
+   under the reader's finger. It is empty until something happened. */
+#status {
+  min-height: 1.35em;
+  max-width: var(--board-max);
+  margin: 0;
+  color: var(--muted);
+  font-size: .85rem;
+  text-align: center;
+}
+
+#error {
+  max-width: var(--board-max);
+  margin: 0;
+  padding: .5rem .7rem;
+  border: 1px solid var(--blast);
+  border-radius: .4rem;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: .85rem;
+}
+
+/* Read by a screen reader, never drawn. The classic pattern, with the size
+   collapses that keep it out of the layout rather than merely off-screen. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
