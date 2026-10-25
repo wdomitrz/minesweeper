@@ -2419,6 +2419,58 @@ fn a_long_press_does_the_other_action_and_only_once() {
     );
 }
 
+/// A new game keeps the flag toggle where the reader left it.
+///
+/// Flag mode is a tool preference, not part of the game being replaced: a
+/// reader working through boards in flag mode must not reach for the toggle
+/// after every "New game", and a mode that silently flips back under the
+/// finger is how a tap opens a square the reader meant to flag.
+#[test]
+fn a_new_game_keeps_the_flag_toggle() {
+    let source = std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs");
+    let ui = strip_rust_comments(&source);
+
+    let new_game = ui
+        .split_once("fn new_game(&mut self")
+        .expect("the new game handler")
+        .1
+        .split_once("\n    }")
+        .expect("the end of the handler")
+        .0;
+    assert!(
+        !new_game.contains("flag_mode"),
+        "starting a game must not touch the flag toggle: the mode belongs to \
+         the reader, not to the game being replaced"
+    );
+
+    // So where does the mode come from? A fresh visit starts in open mode —
+    // opening is the common case — and the flag button is the only thing that
+    // moves it afterwards. Pin both so the reset cannot simply migrate to
+    // another call site.
+    let build = ui
+        .split_once("fn build(window: &Window")
+        .expect("the page build")
+        .1
+        .split_once("\n    }")
+        .expect("the end of the build")
+        .0;
+    assert!(
+        build.contains("flag_mode: false"),
+        "a fresh page starts in open mode; that has to live somewhere"
+    );
+    let toggle = ui
+        .split_once("fn toggle_flag_mode(&mut self")
+        .expect("the toggle")
+        .1
+        .split_once("\n    }")
+        .expect("the end of the toggle")
+        .0;
+    assert!(
+        toggle.contains("self.flag_mode = !self.flag_mode"),
+        "the flag button is the only thing that flips the mode"
+    );
+}
+
 /// A click on an open number chords, and chording is the game's decision.
 ///
 /// The page must not decide a rule from class names it just wrote: whether a
