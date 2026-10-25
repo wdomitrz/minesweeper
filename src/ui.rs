@@ -445,13 +445,12 @@ impl App {
     }
 
     /// Start a new game on `level`.
-    ///
-    /// Start a new game on `level`.
     fn new_game(&mut self, level: Level) {
         // A press armed on the old board must not fire against the new one.
         self.cancel_press();
         self.game = Game::new(level, fresh_seed());
-        self.flag_mode = false;
+        // Flag mode is a tool preference, not part of the game being replaced:
+        // the new board keeps whichever side the toggle was left on.
         self.last_tick.set(js_sys::Date::now());
         self.pending.set(0.0);
         if let Err(error) = self.build_board() {

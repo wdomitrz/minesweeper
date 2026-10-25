@@ -89,7 +89,10 @@ rule set is tested natively.
   browser's echo might lag.
 - **Flag mode is a button as well.** A checkbox would toggle without a listener
   but cannot be *disabled* when the game is over, and flagging a finished board
-  is meaningless. A button carries `aria-pressed` for the same information.
+  is meaningless. A button carries `aria-pressed` for the same information. It
+  is also a **preference, not game state**: a new game leaves it alone, so the
+  toggle stays wherever the reader last put it (only a fresh page starts in
+  open mode).
 - **A click on an open number chords, in either mode.** Whether a click opens
   or chords is a rule, so `Game::is_chordable`/`Game::chord` decide it and
   `ui.rs` only calls `Game::open`; the page never decides a rule from class
