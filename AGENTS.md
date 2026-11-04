@@ -47,9 +47,12 @@ There is **no run step and no server**: the build is the whole story. `INSTRUCTI
 is the template's contract, kept as-is; this file records the decisions taken
 on top of it.
 
-`wasm-bindgen` is pinned to `=0.2.128` in `Cargo.toml` and the CLI must match
-exactly — a mismatched generator produces bindings the runtime will not load and
-the page fails with "Minesweeper could not start".
+`Cargo.toml` asks for `wasm-bindgen = "0.2"` and `Cargo.lock` records the one
+version that means, because `wasm-bindgen-futures`, `js-sys` and `web-sys` each
+depend on an exact `wasm-bindgen`. The CLI must be that version — a mismatched
+generator produces bindings the runtime will not load and the page fails with
+"Minesweeper could not start". Both workflows read the version from `Cargo.lock`
+instead of naming it, so there is nothing to keep in step.
 
 ## Where the rules live
 
@@ -198,9 +201,9 @@ rule set is tested natively.
   observer's own entry rather than the DOM inside the callback (which is what
   makes a resize loop).
 - **The page is one screen and never scrolls.** `height: 100dvh` and
-  `overflow: hidden`, with the board's box the only flexible item, bounded to a
-  square of the space (`--wrap-h`) so a portrait phone does not get a band of
-  nothing between the board and the controls.
+  `overflow: hidden`, with the board's box the only flexible item: it takes what
+  the title, the facts and the tools leave, and a board bigger than that box
+  scrolls inside it on both axes, so the clock and the controls stay put.
 - **A long press is 600ms, not 450.** The board always scrolls now, so a pan
   starts on a square and every pan begins with a press; at 450ms a deliberate pan
   could cross the threshold before the finger moved, and flag a square mid-pan.
@@ -209,11 +212,27 @@ rule set is tested natively.
   2 flags it needs" was removed for the same reason: the reader put those flags
   there and can see how many there are. Only a chord that *could not run* is
   silent; one that runs and loses still ends the game, and that is reported.
-- **Geometry is fluid, not computed.** The board's width is `100%` clamped
-  between `cols × 24px` and `cols × 40px`, the columns are `minmax(0, 1fr)`, and
-  each square is `aspect-ratio: 1`. An earlier version derived the square size
-  from `100vw` minus the gaps and the padding it forgot to count, and the last
-  column hung off the edge of a phone by two pixels.
+- **One square size, at every level.** The square used to be fitted per level —
+  the largest one that lets *this* board fit the box — so a phone drew Beginner
+  at ~39px and every wider board on the 24px floor, and picking a different board
+  visibly resized the game. It is now the size a *reference* board gets:
+  `--ref-squares`, twelve, which sits between Beginner's nine and Intermediate's
+  sixteen, so Beginner's squares come down and the wider boards' go up until the
+  four agree (on a 390px phone, ~28px against ~39 and 24). A board bigger than
+  the box scrolls inside it instead, which is what wide boards always did.
+  - The cost is honest and worth naming: Expert now scrolls on a desktop, which
+    it did not when its squares were 28px there.
+  - The ceiling, `--max-cell` 44px, is a desktop's square size — the fit reaches
+    it and stops, so on a laptop every board is drawn at exactly that — and it is
+    set where Intermediate is still whole (16 × 44px + 17 gaps = 738px inside a
+    56rem column). At the 56px it was, only the nine-square board ever reached it.
+  - `scrollbar-gutter: stable` on the wrapper is part of the same decision, not a
+    nicety: without it the box is narrower for a board that needs a vertical
+    scrollbar, so that board's squares came out a few percent smaller than the
+    other levels' — the same inconsistency arriving by another route.
+  - The fit has to divide a *reference*, never `--cols`/`--rows`: the level's own
+    size is the one thing the square may not depend on. `one_square_size_at_every_level`
+    fails on a single `var(--cols)` in either fit line.
 - **The glyph is sized by container query units** (`52cqmin` of the square), with
   a plain `rem` fallback first. The unit has to be on the *glyph*: an element
   cannot query its own container, and `cqmin` on the button silently resolves

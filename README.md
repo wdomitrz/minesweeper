@@ -18,7 +18,9 @@ Two steps, because there are two targets. Nothing generated is committed.
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.128 --locked
+# the generator must be the version Cargo.lock records
+cargo install wasm-bindgen-cli --locked \
+  --version "$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)"
 
 # 1. the app: compile to wasm and generate the bindings
 cargo build --locked --lib --target wasm32-unknown-unknown --release
