@@ -40,10 +40,10 @@
   --n7: #e6edf3;
   --n8: #9aa7b4;
   /* The page's column, and the box the board is drawn in. Wide enough that the
-     sixteen-square board is whole at the largest square — 16 x 56px plus 17 gaps
-     of 2px is 930px — so the middle board does not scroll on a laptop for no
+     sixteen-square board is whole at the largest square — 16 x 44px plus 17 gaps
+     of 2px is 738px — so the middle board does not scroll on a laptop for no
      reason a reader could see. */
-  --board-max: 60rem;
+  --board-max: 56rem;
 }
 
 /* Only custom properties here, `color-scheme` included. A declaration that sets
@@ -278,16 +278,23 @@ h1 {
    ~39px squares while every wider board sat on the 24px floor, so changing level
    visibly resized the whole board under the reader's hand. Two boards of one
    game are the same squares. The size is now whatever a *reference* board gets,
-   `--ref-squares` across and down, and that reference is Beginner: the board
-   that used to fill a phone. So the one size is the size Beginner always had —
-   ~38px on a 390px phone, 56px on a desktop — and the other three boards are
-   drawn at it rather than at their old floor of 24.
+   `--ref-squares` across and down — and the reference is eleven squares, chosen
+   backwards from a size rather than forwards from a board: eleven squares across
+   a 390px phone's box is a 32px square, which is the size a square should be on
+   a phone. On anything wider the fit runs into `--max-cell` and stops, so a
+   laptop is drawn at 44px — bigger than a phone, because the hand is further
+   from the screen, but not so big that a board stops looking like a board.
 
-   What that costs is scrolling, not size. A minute ago Beginner filled the phone
-   and every other board scrolled; now all four are as big as Beginner was, so
-   Intermediate, Expert and Insane scroll on a phone and Expert scrolls on a
-   desktop. That is the trade the size asks for: the reader can pan a board, but
-   cannot un-see a square that changes size with the level.
+   Two earlier attempts are recorded here because both were plausible and both
+   were wrong: fitting per level drew Beginner at 39px and everything else on the
+   24px floor; fitting from Beginner's own nine squares drew everything at 39px,
+   which is too big on a phone. The size is a design decision, so it is set here
+   as one, in both places it matters.
+
+   What that costs is scrolling, not size. A board bigger than the box scrolls
+   inside it, so Intermediate, Expert and Insane scroll on a phone and Expert
+   scrolls on a desktop. That is the trade the one size asks for: the reader can
+   pan a board, but cannot un-see a square that changes size with the level.
 
    Below the floor a finger cannot pick a square reliably, so a board is never
    drawn smaller than `--min-cell`; above the ceiling a board on a desktop would
@@ -298,18 +305,18 @@ h1 {
 #board {
   --gap: 2px;
   --min-cell: 24px;
-  /* The ceiling. It is a desktop's square size — on any box wide enough for the
-     fit to reach it, every board is drawn at exactly this — so it is the size a
-     reader with a big screen gets. It is as large as the layout allows: sixteen
-     squares and their gaps are 930px, which is why the page's column below is
-     60rem rather than 56. */
-  --max-cell: 56px;
-  /* The one board the square's size is measured from, and it is Beginner on
-     purpose: nine squares is the board that used to fill a phone, so the one
-     size every level is now drawn at is the size Beginner always had. Nothing
-     ends up smaller than it was, and the other three boards come up to it
-     instead of it coming down to them. */
-  --ref-squares: 9;
+  /* The ceiling, and therefore the size every board is drawn at on a screen wide
+     enough to reach it: 44px is a square that reads as a board square on a
+     desktop rather than as a tile on a wall. It is also what keeps the middle
+     board whole in a laptop's window — 16 x 44px plus 17 gaps is 738px inside
+     56rem — so the level a reader is most likely to be on does not have to be
+     scrolled for no reason they can see. */
+  --max-cell: 44px;
+  /* The reference the square's size is measured from: eleven squares across the
+     box and down it. Chosen backwards from a size — eleven across a 390px
+     phone's 374px box is 32px — because the size is the decision and this is
+     only the arithmetic that produces it. */
+  --ref-squares: 11;
   /* The board's own column count, and the reference board's, each with its gaps:
      a board of n squares has n+1 gaps, because it is padded by the same amount
      it is spaced by. */

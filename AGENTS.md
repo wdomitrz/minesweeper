@@ -212,28 +212,29 @@ rule set is tested natively.
   2 flags it needs" was removed for the same reason: the reader put those flags
   there and can see how many there are. Only a chord that *could not run* is
   silent; one that runs and loses still ends the game, and that is reported.
-- **One square size, at every level — and it is Beginner's size.** The square
-  used to be fitted per level, the largest one that lets *this* board fit the box,
-  so a phone drew Beginner at ~39px while every wider board sat on the 24px floor,
-  and picking a different board visibly resized the game. It is now the size a
-  *reference* board gets, and the reference is `--ref-squares: 9` — Beginner,
-  deliberately: that is the board that used to fill a phone, so the one size every
-  level is drawn at is the size Beginner always had (~38px on a 390px phone, 56px
-  on a desktop), and the wider boards come up to it rather than it coming down to
-  them. A first attempt used twelve, the midpoint, which a player rejected on
-  sight as too small; the lesson is that "in between" is not a size anybody asked
-  for when one of the two is the board they play.
-  - What it costs is scrolling. Beginner used to be the only board that fitted a
-    phone; now all four are drawn at its size, so Intermediate, Expert and Insane
-    scroll on a phone, and Expert scrolls on a desktop. A reader can pan a board;
-    they cannot un-see a square that changes size with the level.
-  - The ceiling, `--max-cell: 56px`, is a desktop's size — the fit reaches it and
-    stops, so on a wide screen every board is drawn at exactly that — and it is
-    where Beginner's desktop squares were before there was one size for all four.
-    `--board-max: 60rem` is then set from it: 16 × 56px + 17 gaps is 930px, so the
-    middle board is still whole on a laptop instead of scrolling for no visible
-    reason. `the_largest_square_still_leaves_the_middle_board_whole` derives both
-    numbers from the stylesheet and checks that.
+- **One square size, at every level: 32px on a phone, 44px on a desktop.** The
+  square used to be fitted per level, the largest one that lets *this* board fit
+  the box, so a phone drew Beginner at ~39px while every wider board sat on the
+  24px floor, and picking a different board visibly resized the game. It is now
+  one size for all four boards, whatever level is loaded.
+  - **The size is the decision, and it took three attempts.** A reference board of
+    twelve squares (the midpoint of Beginner's nine and Intermediate's sixteen)
+    drew everything at ~28px, too small; Beginner's own nine drew everything at
+    ~39px, too big. The reference is now `--ref-squares: 11`, chosen *backwards*
+    from the size: eleven squares across a 390px phone's 374px box is 31.8px,
+    which is the 32px a square should be on a phone. The count is arithmetic; the
+    32 is the point, and `a_phone_draws_32px_squares_and_a_desktop_44px` derives
+    the pixel size from the stylesheet and fails if it drifts.
+  - The ceiling `--max-cell: 44px` is a desktop's size, because the fit reaches
+    it and stops — 44px reads as a board square on a big screen where 56px read as
+    a tile. `--board-max: 56rem` is then set from it: 16 × 44px + 17 gaps is
+    738px, so the middle board stays whole on a laptop.
+    `the_largest_square_still_leaves_the_middle_board_whole` derives both numbers
+    from the stylesheet and checks that.
+  - The cost is scrolling. A board bigger than the box scrolls inside it, so
+    Intermediate, Expert and Insane scroll on a phone and Expert scrolls on a
+    desktop. A reader can pan a board; they cannot un-see a square that changes
+    size with the level.
   - The fit divides the box's **border** box, never a client box and never with a
     reserved gutter. A client box is smaller by a scrollbar, so the same board
     would get a smaller square depending on whether it happened to scroll; a

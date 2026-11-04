@@ -2725,30 +2725,42 @@ fn one_square_size_at_every_level() {
     );
 }
 
-/// The reference board is the nine-square one, so the one size every level is
-/// drawn at is the size Beginner has always had.
+/// The square is the size it was chosen to be: 32px on a phone, 44px on a
+/// desktop.
 ///
-/// This is a size decision, not a layout one, and it is the second attempt at it:
-/// a reference of twelve was called too small, because it took Beginner — the
-/// board that filled a phone — down to ~28px on one. Nine is the board whose
-/// square the reader already knew, so nothing is smaller than it used to be and
-/// the wider boards come up to it instead.
+/// This is a size decision recorded as one, in the two places it is made, and it
+/// is the third attempt: fitting per level drew Beginner at ~39px and everything
+/// else on the 24px floor; a reference of twelve drew every board at ~28px, too
+/// small to play; a reference of nine drew every board at ~39px, too big to play.
+/// Both rejected sizes were plausible arithmetic, which is the point — the size
+/// is what matters, so it is derived here from the stylesheet and checked, rather
+/// than left to whichever reference count somebody likes the look of.
 #[test]
-fn the_reference_board_is_the_one_that_used_to_fill_a_phone() {
+fn a_phone_draws_32px_squares_and_a_desktop_44px() {
     let css = style();
     let board = board_rule(&css);
-    assert_eq!(
-        declared(board, "--ref-squares"),
-        "9",
-        "the reference is Beginner's nine squares: the size it yields is Beginner's \
-         own, and a reader who only plays Beginner must not lose any of it"
+    let gap = pixels(board, "--gap");
+    let reference: f64 = declared(board, "--ref-squares")
+        .parse()
+        .expect("--ref-squares is a whole number of squares");
+
+    // A 390px phone's box, which is the box the size was chosen against: the
+    // viewport less `body`'s .5rem padding on each side. The height does not bind
+    // on a phone in portrait, so only the width is needed.
+    let phone_box = 390.0 - 2.0 * 8.0;
+    let phone = (phone_box - (reference + 1.0) * gap) / reference;
+    assert!(
+        (phone - 32.0).abs() < 0.5,
+        "a 390px phone draws {phone:.2}px squares, not the 32px they were chosen \
+         to be: --ref-squares is {reference}"
     );
-    // And the ceiling is Beginner's desktop size for the same reason.
-    assert_eq!(
-        declared(board, "--max-cell"),
-        "56px",
-        "a desktop is drawn at the ceiling, so the ceiling is where a desktop keeps \
-         the size Beginner had before there was one size for every level"
+
+    // Any screen wide enough for the fit to reach the ceiling is drawn at it, so
+    // the ceiling is the desktop's size.
+    let desktop = pixels(board, "--max-cell");
+    assert!(
+        (desktop - 44.0).abs() < 0.5,
+        "a desktop draws {desktop}px squares, not the 44px they were chosen to be"
     );
 }
 
@@ -2757,10 +2769,10 @@ fn the_reference_board_is_the_one_that_used_to_fill_a_phone() {
 ///
 /// On a laptop the fit reaches `--max-cell` and stops, which means that one
 /// number is the size *every* level is drawn at there — so it is also the number
-/// that decides whether Intermediate fits a desktop without being scrolled. It
-/// was 56px while a square was only ever that big on the nine-square board; with
-/// one size for all four, 16 × 56px plus the gaps is wider than the page's own
-/// column, and the middle board would scroll for no reason a reader could see.
+/// that decides whether Intermediate fits a desktop without being scrolled. At
+/// 56px, 16 × 56px plus the gaps is wider than the page's own column, and the
+/// middle board would scroll for no reason a reader could see; the ceiling and
+/// the column have to be chosen together, which is why this is derived from both.
 #[test]
 fn the_largest_square_still_leaves_the_middle_board_whole() {
     let css = style();
