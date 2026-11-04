@@ -2443,10 +2443,11 @@ fn a_new_game_keeps_the_flag_toggle() {
          the reader, not to the game being replaced"
     );
 
-    // So where does the mode come from? A fresh visit starts in open mode —
-    // opening is the common case — and the flag button is the only thing that
-    // moves it afterwards. Pin both so the reset cannot simply migrate to
-    // another call site.
+    // So where does the mode come from? From storage, because a phone that
+    // evicts the tab while the reader switches apps reloads the page on return —
+    // and a mode that lives only in the page's memory is back at its default by
+    // the time they look again. Open mode is what an unreadable or missing entry
+    // means, which is where a fresh install starts.
     let build = ui
         .split_once("fn build(window: &Window")
         .expect("the page build")
@@ -2455,8 +2456,16 @@ fn a_new_game_keeps_the_flag_toggle() {
         .expect("the end of the build")
         .0;
     assert!(
-        build.contains("flag_mode: false"),
-        "a fresh page starts in open mode; that has to live somewhere"
+        build.contains("flag_mode: stored_flag_mode(window)"),
+        "the page must start in the mode the reader last chose"
+    );
+    let stored = ui
+        .split_once("fn stored_flag_mode(")
+        .expect("the stored mode reader")
+        .1;
+    assert!(
+        stored.contains("FLAG_MODE_KEY"),
+        "the remembered toggle needs its own key, not a field of the saved game"
     );
     let toggle = ui
         .split_once("fn toggle_flag_mode(&mut self")
@@ -2468,6 +2477,61 @@ fn a_new_game_keeps_the_flag_toggle() {
     assert!(
         toggle.contains("self.flag_mode = !self.flag_mode"),
         "the flag button is the only thing that flips the mode"
+    );
+    assert!(
+        toggle.contains("remember_flag_mode()"),
+        "the toggle has to be written when it moves, not when the page goes \
+         away: a tab a phone discarded never runs a pagehide"
+    );
+}
+
+/// The first tap of a board opens, even in flag mode.
+///
+/// A board nobody has opened has no mine field yet, so there is nothing for a
+/// flag to claim — and the reader who left flag mode on for the previous board
+/// would otherwise have to switch it off before they could start the next one.
+/// The rule lives in the game, because the page deciding it from its own toggle
+/// is exactly how the first tap came to plant a flag.
+#[test]
+fn the_first_tap_of_a_board_always_opens() {
+    let ui = strip_rust_comments(
+        &std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs"),
+    );
+    let game = strip_rust_comments(
+        &std::fs::read_to_string(root().join("src/game.rs")).expect("reading src/game.rs"),
+    );
+
+    let tap = ui
+        .split_once("fn tap(&mut self")
+        .expect("the tap handler")
+        .1
+        .split_once("\n    }")
+        .expect("the end of the handler")
+        .0;
+    assert!(
+        tap.contains("self.game.marks_on_tap(index, self.flag_mode)"),
+        "the page must ask the game what a tap means"
+    );
+    assert!(
+        !tap.contains("self.flag_mode &&"),
+        "the page must not decide the tap from the toggle alone: the first \
+         square of a board opens in either mode"
+    );
+
+    let rule = game
+        .split_once("pub fn marks_on_tap")
+        .expect("the tap rule")
+        .1
+        .split_once("\n    }")
+        .expect("the end of the rule")
+        .0;
+    assert!(
+        rule.contains("has_started()"),
+        "an unopened board must open on a tap whatever the toggle says"
+    );
+    assert!(
+        rule.contains("is_chordable(index)"),
+        "an open number chords in either mode, so the chord rule wins"
     );
 }
 

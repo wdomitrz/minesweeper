@@ -225,6 +225,23 @@ impl Game {
             .is_some_and(|field| !field.is_mine(index) && field.count(index) > 0)
     }
 
+    /// Whether a tap on `index` marks the square instead of opening it, with
+    /// `flag_mode` being where the reader left the toggle.
+    ///
+    /// Two rules decide this, and both belong here rather than in the page:
+    ///
+    /// * **The first square of a board always opens**, whatever the toggle says.
+    ///   Nothing has been opened, so there is nothing on the board to reason
+    ///   about yet; the reader who left flag mode on for the previous board would
+    ///   otherwise have to switch it off to make a move, and a tap that quietly
+    ///   plants a flag where they meant to start the game is the one genuinely
+    ///   surprising thing the mode can do.
+    /// * **An open number never marks**, in either mode: it is a button for its
+    ///   ring, not a square to open or flag, so the chording rule wins.
+    pub fn marks_on_tap(&self, index: usize, flag_mode: bool) -> bool {
+        flag_mode && index < self.cover.len() && self.has_started() && !self.is_chordable(index)
+    }
+
     /// Open every covered square beside an open number, when the flags beside it
     /// already account for it.
     ///
@@ -1108,6 +1125,47 @@ mod tests {
             "a fresh board has safe squares still covered"
         );
         assert_eq!(game.status(), Status::Playing);
+    }
+
+    #[test]
+    fn the_first_tap_of_a_board_opens_whatever_the_toggle_says() {
+        // A board nobody has opened has no mine field yet: there is nothing to
+        // reason about, so the toggle has nothing to say. The reader who left
+        // flag mode on from the last board must still be able to start this one
+        // with a tap.
+        for level in Level::ALL {
+            let game = Game::new(level, 4_242);
+            assert!(!game.has_started());
+            for index in [0, 1, level.cells() / 2, level.cells() - 1] {
+                assert!(
+                    !game.marks_on_tap(index, true),
+                    "{} first tap on {index} must open",
+                    level.label()
+                );
+                assert!(!game.marks_on_tap(index, false));
+            }
+            assert!(
+                !game.marks_on_tap(usize::MAX, true),
+                "an index off the board is not a square to mark either"
+            );
+        }
+    }
+
+    #[test]
+    fn once_the_board_is_open_flag_mode_marks_covered_squares_only() {
+        let (game, index, _) = numbered_game(5_515);
+        // An open number is a button for its ring in either mode.
+        assert!(game.is_chordable(index));
+        assert!(!game.marks_on_tap(index, true));
+
+        let covered = (0..game.cells().len())
+            .find(|i| game.cover[*i] == Cover::Hidden)
+            .expect("a covered square");
+        assert!(game.marks_on_tap(covered, true));
+        assert!(
+            !game.marks_on_tap(covered, false),
+            "with the toggle off a covered square always opens"
+        );
     }
 
     #[test]

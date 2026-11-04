@@ -48,6 +48,17 @@ type Shared = Rc<RefCell<App>>;
 /// from `self.location`.
 const SCOPE: &str = "./";
 
+/// Where the flag toggle is remembered, in this page's `localStorage`.
+///
+/// Its own key rather than a field of the saved game, because it is not a fact
+/// about the board: it is a tool the reader set, it outlives "New game", and it
+/// must survive the untouched-board rule that deletes the game of a page nobody
+/// played. Kept in its own entry for the same reason it is worth storing at all —
+/// a phone that evicts the tab while the reader switches apps reloads the page
+/// on return, and a preference with no home outside the page's memory is back at
+/// its default by the time they look again.
+const FLAG_MODE_KEY: &str = "minesweeper.flag-mode.v1";
+
 /// How often the clock is checked. It is a check, not a tick: the elapsed time
 /// comes from the wall clock, so a tab the browser throttled still catches up.
 const TICK_MS: i32 = 1_000;
@@ -188,7 +199,7 @@ impl App {
             shown: Vec::new(),
             shown_focus: None,
             focused: 0,
-            flag_mode: false,
+            flag_mode: stored_flag_mode(window),
             last_tick: Cell::new(js_sys::Date::now()),
             pending: Cell::new(0.0),
             wrap: None,
@@ -371,13 +382,12 @@ impl App {
     /// What a tap does, in either mode: open a covered square, and chord an
     /// open number.
     ///
-    /// Chording belongs to the square, not to the mode: a satisfied number is a
-    /// button for its ring in flag mode exactly as it is in open mode, so the
-    /// same tap opens it wherever the switch stands. Only a covered square
-    /// turns the tap into a flag when flag mode is on — which is why the chord
-    /// check comes first, and why the game, not the page, owns the rule.
+    /// Whether the mode turns the tap into a flag is [`Game::marks_on_tap`]'s
+    /// decision, not this layer's: the rule includes the one square that always
+    /// opens — the first of a board — and a page that decided it from its own
+    /// toggle would have to know the game to get that right.
     fn tap(&mut self, index: usize) {
-        if self.flag_mode && !self.game.is_chordable(index) {
+        if self.game.marks_on_tap(index, self.flag_mode) {
             self.flag(index);
         } else {
             self.open(index);
@@ -510,10 +520,26 @@ impl App {
         }
     }
 
-    /// Flip between opening squares and marking them.
+    /// Flip between opening squares and marking them, and remember the choice.
+    ///
+    /// Persisted on the toggle rather than when the page goes away: a tab a
+    /// phone discarded in the background never runs a `pagehide`, and the toggle
+    /// is the whole reason the preference is worth keeping.
     fn toggle_flag_mode(&mut self) {
         self.flag_mode = !self.flag_mode;
+        self.remember_flag_mode();
         self.paint_tools();
+    }
+
+    /// Write the flag toggle where a reloaded page will find it.
+    fn remember_flag_mode(&self) {
+        let Some(storage) = self.storage() else {
+            return;
+        };
+        let value = if self.flag_mode { "true" } else { "false" };
+        if let Err(error) = storage.set_item(FLAG_MODE_KEY, value) {
+            warn("could not remember the flag toggle", &error);
+        }
     }
 
     /// Move the tab stop and the keyboard focus to `index`.
@@ -1208,6 +1234,20 @@ fn stored_game(window: &Window) -> Option<Game> {
     let storage = window.local_storage().ok().flatten()?;
     let raw = storage.get_item(STORAGE_KEY).ok().flatten()?;
     Game::from_stored(&raw)
+}
+
+/// The flag toggle as the reader last left it.
+///
+/// Anything that is not a remembered "on" — no `localStorage`, no entry, a value
+/// this build did not write — is open mode, which is where a fresh install
+/// starts: opening is the common move, and the toggle is one tap away.
+fn stored_flag_mode(window: &Window) -> bool {
+    window
+        .local_storage()
+        .ok()
+        .flatten()
+        .and_then(|storage| storage.get_item(FLAG_MODE_KEY).ok().flatten())
+        .is_some_and(|value| value == "true")
 }
 
 /// A seed for the mine placement.

@@ -91,8 +91,22 @@ rule set is tested natively.
   but cannot be *disabled* when the game is over, and flagging a finished board
   is meaningless. A button carries `aria-pressed` for the same information. It
   is also a **preference, not game state**: a new game leaves it alone, so the
-  toggle stays wherever the reader last put it (only a fresh page starts in
-  open mode).
+  toggle stays wherever the reader last put it — and it is written to
+  `localStorage` under its own key as it is toggled, because a page is not a
+  session. A phone that discards a backgrounded tab reloads the page when the
+  reader comes back, an update handed over by the worker reloads it too, and a
+  preference that lived only in the page's memory was back at open mode by then;
+  that is what "the flag option resets when I minimise the game" was. Its own key
+  rather than a field of the saved game, since it must also survive "New game"
+  and the untouched-board rule that deletes the game of a page nobody played. A
+  missing or unreadable entry means open mode.
+- **The first tap of a board always opens, in either mode.** A fresh board has no
+  mine field yet, so there is nothing for a flag to claim, and the reader who
+  left flag mode on for the previous board must not have to switch it off to
+  start the next one. The rule is `Game::marks_on_tap`, not the page's toggle:
+  it is false until the board has been opened, so only the *second* move on a new
+  board can mark. Open numbers are excluded for the same reason as below — the
+  chord rule wins in both modes.
 - **A click on an open number chords, in either mode.** Whether a click opens
   or chords is a rule, so `Game::is_chordable`/`Game::chord` decide it and
   `ui.rs` only calls `Game::open`; the page never decides a rule from class
@@ -249,6 +263,20 @@ long-pressed square keeps its flag and does not open from the trailing echo; a
 right click still flags. In flag mode, a long press that opens a square is
 followed by a tap that flags — the open square answering as an open square —
 which is the same rule, not a dropped gesture.
+
+**Verified in a browser on 2026-11-04, the flag toggle across a reload and the
+first tap** (headless Chromium over raw CDP, the site served from `dist/` on
+`127.0.0.1`): a clean profile starts in open mode with no stored toggle; pressing
+Flag writes `minesweeper.flag-mode.v1` as `true`; the **first tap of the fresh
+board opens** — 47 squares to a flood, none flagged — while the toggle is still
+on; the next tap on that started board flags; a reload (what a discarded tab
+comes back as) restores the board *and* the toggle in the pressed position; "New
+game" keeps it on and its first tap opens again; turning it off is remembered as
+`false`. Long press was re-checked in the same harness: in open mode it flags and
+the trailing `click` does nothing, in flag mode it opens. Reverting `ui.rs` to
+`self.flag_mode && !self.game.is_chordable(index)` and to `flag_mode: false`
+puts the first two of those back to failing, which is the bug the reader
+reported.
 
 **Verified in a browser on 2026-10-24** (headless Chromium over raw CDP, since
 there is no node on this host): the board renders and plays at 390×844, 320×640,
