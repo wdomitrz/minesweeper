@@ -958,7 +958,16 @@ fn fit_canvas(app: &App) {
     let Some(wrap) = app.wrap.as_ref() else {
         return;
     };
-    let (width, height) = (wrap.client_width(), wrap.client_height());
+    // The *border* box, to agree with `measured_size` above. A client box is
+    // smaller by the width of a scrollbar, and this app's square size must not
+    // depend on whether a board happened to need one: the observer path measures
+    // the border box, so a fallback measuring the client box would size a
+    // scrolling board a little smaller than the same board drawn through the
+    // observer — the level-dependent sizing this whole design exists to avoid.
+    let (width, height) = match wrap.clone().dyn_into::<web_sys::HtmlElement>() {
+        Ok(element) => (element.offset_width(), element.offset_height()),
+        Err(_) => (wrap.client_width(), wrap.client_height()),
+    };
     apply_canvas(app, f64::from(width), f64::from(height));
 }
 

@@ -1791,10 +1791,7 @@ permissions:
         env.get("CARGO_TERM_COLOR").map(String::as_str),
         Some("always"),
     );
-    assert_eq!(
-        env.get("RUST_BACKTRACE").map(String::as_str),
-        Some("1"),
-    );
+    assert_eq!(env.get("RUST_BACKTRACE").map(String::as_str), Some("1"),);
     // The block ended at `permissions:`; this key is indented the same way and
     // would be swallowed by a reader that kept going.
     assert!(
@@ -2693,13 +2690,65 @@ fn one_square_size_at_every_level() {
         "the board's width is its own columns and gaps, not the reference's"
     );
 
-    // A scrollbar is not a level. If the gutter is not reserved, a board tall
-    // enough to scroll gets a narrower box and therefore a smaller square than a
-    // board that happens not to scroll — a few percent, and visible.
+    // A scrollbar is not a level, and the fit is what keeps it that way: it
+    // divides the box's *border* box, which a scrollbar does not change. A client
+    // box would be smaller for a board that scrolls, so the same board would get
+    // a smaller square depending on whether it happened to fit — a few percent,
+    // and visible when switching level.
+    let ui = strip_rust_comments(
+        &std::fs::read_to_string(root().join("src/ui.rs")).expect("reading src/ui.rs"),
+    );
     assert!(
-        css.contains("scrollbar-gutter: stable"),
-        "the box must reserve the scrollbar's width, or the square's size depends \
-         on whether this board needed one"
+        ui.contains("entry.border_box_size()"),
+        "the observed box must be the border box: a content box shrinks when a \
+         scrollbar appears, which makes the square's size depend on the level"
+    );
+    assert!(
+        ui.contains("offset_width()") && ui.contains("offset_height()"),
+        "and the no-observer fallback must measure the border box too, or the two \
+         paths size the same board differently"
+    );
+    // Reserving a gutter is the *other* way to get this wrong: it narrows the
+    // content box the board is drawn in without narrowing the border box the fit
+    // measures, so a board that exactly fits is given a square too big for it and
+    // opens with a scroll on an axis that should not scroll.
+    // A declaration, not the word: the stylesheet explains in a comment why there
+    // is no gutter, and a comment is not a rule.
+    let reserves_a_gutter = css
+        .lines()
+        .map(str::trim)
+        .any(|line| line.starts_with("scrollbar-gutter:"));
+    assert!(
+        !reserves_a_gutter,
+        "the box must not reserve a scrollbar gutter: the fit already ignores \
+         scrollbars, and a reserved gutter only takes 10px away from the board"
+    );
+}
+
+/// The reference board is the nine-square one, so the one size every level is
+/// drawn at is the size Beginner has always had.
+///
+/// This is a size decision, not a layout one, and it is the second attempt at it:
+/// a reference of twelve was called too small, because it took Beginner — the
+/// board that filled a phone — down to ~28px on one. Nine is the board whose
+/// square the reader already knew, so nothing is smaller than it used to be and
+/// the wider boards come up to it instead.
+#[test]
+fn the_reference_board_is_the_one_that_used_to_fill_a_phone() {
+    let css = style();
+    let board = board_rule(&css);
+    assert_eq!(
+        declared(board, "--ref-squares"),
+        "9",
+        "the reference is Beginner's nine squares: the size it yields is Beginner's \
+         own, and a reader who only plays Beginner must not lose any of it"
+    );
+    // And the ceiling is Beginner's desktop size for the same reason.
+    assert_eq!(
+        declared(board, "--max-cell"),
+        "56px",
+        "a desktop is drawn at the ceiling, so the ceiling is where a desktop keeps \
+         the size Beginner had before there was one size for every level"
     );
 }
 

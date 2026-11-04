@@ -39,8 +39,11 @@
   --n6: #56d4dd;
   --n7: #e6edf3;
   --n8: #9aa7b4;
-  /* Expert is 30 squares wide, so the widest board this app will ever draw. */
-  --board-max: 56rem;
+  /* The page's column, and the box the board is drawn in. Wide enough that the
+     sixteen-square board is whole at the largest square — 16 x 56px plus 17 gaps
+     of 2px is 930px — so the middle board does not scroll on a laptop for no
+     reason a reader could see. */
+  --board-max: 60rem;
 }
 
 /* Only custom properties here, `color-scheme` included. A declaration that sets
@@ -258,13 +261,13 @@ h1 {
   -webkit-overflow-scrolling: touch;
   touch-action: manipulation;
   scrollbar-width: thin;
-  /* The gutter is reserved whether or not this board needs it. Without that, the
-     square's size depended on the level through the scrollbar: a board tall
-     enough to scroll got a narrower box, so its square came out smaller than the
-     square of a board that happened not to scroll — a 3% difference between two
-     boards that are supposed to be drawn identically, which is precisely the
-     inconsistency `--ref-squares` exists to remove. */
-  scrollbar-gutter: stable;
+  /* No `scrollbar-gutter: stable` here, deliberately, and it is not an omission:
+     reserving a gutter narrows the content box the board is drawn in without
+     narrowing the border box the fit measures, so a board that exactly fits the
+     box would be given a square too big for it and open with a 10px scroll on an
+     axis that should not scroll at all. The size cannot depend on a scrollbar
+     either way, because the fit divides the *border* box (`measured_size` in
+     `ui.rs` reads `border_box_size`), which a scrollbar does not change. */
   border-radius: .4rem;
 }
 
@@ -275,16 +278,16 @@ h1 {
    ~39px squares while every wider board sat on the 24px floor, so changing level
    visibly resized the whole board under the reader's hand. Two boards of one
    game are the same squares. The size is now whatever a *reference* board gets,
-   `--ref-squares` across and down, which is twelve: between Beginner's nine and
-   Intermediate's sixteen, so Beginner's squares come down, the wider boards' go
-   up, and the four board sizes meet where the difference used to be. On a 390px
-   phone that is ~28px, against ~39 and 24.
+   `--ref-squares` across and down, and that reference is Beginner: the board
+   that used to fill a phone. So the one size is the size Beginner always had —
+   ~38px on a 390px phone, 56px on a desktop — and the other three boards are
+   drawn at it rather than at their old floor of 24.
 
-   What that costs is scrolling, not size. A board that is wider or taller than
-   the box scrolls inside it, as every board wider than the screen always did,
-   and Expert now does so on a desktop as well. That is the right trade: the box
-   is what the page has, and a square that changes size when the reader picks a
-   different board is the one thing nobody can get used to.
+   What that costs is scrolling, not size. A minute ago Beginner filled the phone
+   and every other board scrolled; now all four are as big as Beginner was, so
+   Intermediate, Expert and Insane scroll on a phone and Expert scrolls on a
+   desktop. That is the trade the size asks for: the reader can pan a board, but
+   cannot un-see a square that changes size with the level.
 
    Below the floor a finger cannot pick a square reliably, so a board is never
    drawn smaller than `--min-cell`; above the ceiling a board on a desktop would
@@ -296,17 +299,17 @@ h1 {
   --gap: 2px;
   --min-cell: 24px;
   /* The ceiling. It is a desktop's square size — on any box wide enough for the
-     fit to reach it, every board is drawn at exactly this — so it is set where
-     the *middle* board is still whole: sixteen squares and their gaps are 738px,
-     which a laptop's window has. At the 56px it used to be, a square was only
-     ever that big on the nine-square board, and Intermediate had to be scrolled
-     on a desktop for no reason a reader could see. */
-  --max-cell: 44px;
-  /* The one board the square's size is measured from. Twelve sits between
-     Beginner's nine and Intermediate's sixteen, so the size it yields is between
-     the two sizes those boards used to be drawn at — and Beginner, which was the
-     big one, gives the most ground. */
-  --ref-squares: 12;
+     fit to reach it, every board is drawn at exactly this — so it is the size a
+     reader with a big screen gets. It is as large as the layout allows: sixteen
+     squares and their gaps are 930px, which is why the page's column below is
+     60rem rather than 56. */
+  --max-cell: 56px;
+  /* The one board the square's size is measured from, and it is Beginner on
+     purpose: nine squares is the board that used to fill a phone, so the one
+     size every level is now drawn at is the size Beginner always had. Nothing
+     ends up smaller than it was, and the other three boards come up to it
+     instead of it coming down to them. */
+  --ref-squares: 9;
   /* The board's own column count, and the reference board's, each with its gaps:
      a board of n squares has n+1 gaps, because it is padded by the same amount
      it is spaced by. */

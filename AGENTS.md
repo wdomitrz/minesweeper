@@ -212,25 +212,37 @@ rule set is tested natively.
   2 flags it needs" was removed for the same reason: the reader put those flags
   there and can see how many there are. Only a chord that *could not run* is
   silent; one that runs and loses still ends the game, and that is reported.
-- **One square size, at every level.** The square used to be fitted per level —
-  the largest one that lets *this* board fit the box — so a phone drew Beginner
-  at ~39px and every wider board on the 24px floor, and picking a different board
-  visibly resized the game. It is now the size a *reference* board gets:
-  `--ref-squares`, twelve, which sits between Beginner's nine and Intermediate's
-  sixteen, so Beginner's squares come down and the wider boards' go up until the
-  four agree (on a 390px phone, ~28px against ~39 and 24). A board bigger than
-  the box scrolls inside it instead, which is what wide boards always did.
-  - The cost is honest and worth naming: Expert now scrolls on a desktop, which
-    it did not when its squares were 28px there.
-  - The ceiling, `--max-cell` 44px, is a desktop's square size — the fit reaches
-    it and stops, so on a laptop every board is drawn at exactly that — and it is
-    set where Intermediate is still whole (16 × 44px + 17 gaps = 738px inside a
-    56rem column). At the 56px it was, only the nine-square board ever reached it.
-  - `scrollbar-gutter: stable` on the wrapper is part of the same decision, not a
-    nicety: without it the box is narrower for a board that needs a vertical
-    scrollbar, so that board's squares came out a few percent smaller than the
-    other levels' — the same inconsistency arriving by another route.
-  - The fit has to divide a *reference*, never `--cols`/`--rows`: the level's own
+- **One square size, at every level — and it is Beginner's size.** The square
+  used to be fitted per level, the largest one that lets *this* board fit the box,
+  so a phone drew Beginner at ~39px while every wider board sat on the 24px floor,
+  and picking a different board visibly resized the game. It is now the size a
+  *reference* board gets, and the reference is `--ref-squares: 9` — Beginner,
+  deliberately: that is the board that used to fill a phone, so the one size every
+  level is drawn at is the size Beginner always had (~38px on a 390px phone, 56px
+  on a desktop), and the wider boards come up to it rather than it coming down to
+  them. A first attempt used twelve, the midpoint, which a player rejected on
+  sight as too small; the lesson is that "in between" is not a size anybody asked
+  for when one of the two is the board they play.
+  - What it costs is scrolling. Beginner used to be the only board that fitted a
+    phone; now all four are drawn at its size, so Intermediate, Expert and Insane
+    scroll on a phone, and Expert scrolls on a desktop. A reader can pan a board;
+    they cannot un-see a square that changes size with the level.
+  - The ceiling, `--max-cell: 56px`, is a desktop's size — the fit reaches it and
+    stops, so on a wide screen every board is drawn at exactly that — and it is
+    where Beginner's desktop squares were before there was one size for all four.
+    `--board-max: 60rem` is then set from it: 16 × 56px + 17 gaps is 930px, so the
+    middle board is still whole on a laptop instead of scrolling for no visible
+    reason. `the_largest_square_still_leaves_the_middle_board_whole` derives both
+    numbers from the stylesheet and checks that.
+  - The fit divides the box's **border** box, never a client box and never with a
+    reserved gutter. A client box is smaller by a scrollbar, so the same board
+    would get a smaller square depending on whether it happened to scroll; a
+    reserved `scrollbar-gutter` narrows the box the board is drawn in without
+    narrowing the number the fit reads, so a board that exactly fits opens with a
+    10px scroll on an axis that should not scroll at all. `measured_size` reads
+    `border_box_size`, the no-observer fallback reads `offset_width`/`offset_height`
+    for the same reason, and both are pinned by tests.
+  - The fit must divide a *reference*, never `--cols`/`--rows`: the level's own
     size is the one thing the square may not depend on. `one_square_size_at_every_level`
     fails on a single `var(--cols)` in either fit line.
 - **The glyph is sized by container query units** (`52cqmin` of the square), with
