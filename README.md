@@ -56,7 +56,7 @@ the page loads.
 
 **The board is the app.** It takes the whole screen: the title and the clock sit
 above it, the controls below, and the board gets everything in between. A board
-bigger than the screen — Expert and Insane are — is panned by dragging, and your
+bigger than the screen — Expert is — is panned by dragging, and your
 browser's own pinch-zoom magnifies it.
 
 **A long press does the other thing.** Hold a square to flag it; hold one while
@@ -71,10 +71,15 @@ same as being right.
 
 Press **Flag** to switch to marking with plain taps, or right-click on a desktop.
 
-Four sizes: Beginner is 9×9 with 10 mines, Intermediate 16×16 with 40, Expert
-30×16 with 99 and Insane 99×99 with 2000. Expert is the board the game has always
-been and Insane is absurd on purpose, so on a phone both scroll instead of being
-squeezed into untappable squares.
+Three sizes: Beginner is 9×9 with 10 mines, Intermediate 16×16 with 40, Expert
+30×16 with 99. Expert is the board the game has always been, so on a phone it
+scrolls instead of being squeezed into untappable squares.
+
+**You should almost never have to guess.** Each board is drawn and then played
+out by a solver that only knows what the numbers would tell you; a board it
+cannot finish that way is redrawn. Beginner and Intermediate boards are
+reliably playable to the end by logic alone, and Expert almost always is — the
+rare board that is not leaves at most a small coin toss at the very end.
 
 A game in progress is kept, including one you lost, so closing the tab or losing
 signal does not lose the board. The clock is wall-clock time spent with the game
