@@ -2578,7 +2578,7 @@ fn the_board_is_one_string_and_squares_are_looked_up_by_index() {
 #[test]
 fn every_level_is_offered_and_the_board_can_scroll() {
     let page = shell();
-    for slug in ["beginner", "intermediate", "expert", "insane"] {
+    for slug in ["beginner", "intermediate", "expert"] {
         assert!(
             page.contains(&format!("value=\"{slug}\"")),
             "the board menu does not offer {slug}"
@@ -2587,7 +2587,7 @@ fn every_level_is_offered_and_the_board_can_scroll() {
     let css = style();
     assert!(
         css.contains("overflow: auto"),
-        "the board must scroll on both axes: 99 squares wide does not fit a phone"
+        "the board must scroll on both axes: 30 squares wide does not fit a phone"
     );
     // The page itself must not scroll. A board that scrolls inside its own box is
     // what keeps the clock and the controls where the reader left them; a page
@@ -2792,7 +2792,7 @@ fn the_largest_square_still_leaves_the_middle_board_whole() {
 
 /// Nothing in the app takes a gesture the browser needs.
 ///
-/// The board is bigger than the screen at two of its four sizes, so panning and
+/// The board is bigger than the screen at its biggest size, so panning and
 /// pinch-zooming it are the browser's job — and `touch-action: none`, which an
 /// earlier version set on the board's box, silently took both away. The board
 /// could be neither scrolled nor magnified, and the app had grown a zoom of its

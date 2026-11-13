@@ -57,10 +57,11 @@ instead of naming it, so there is nothing to keep in step.
 ## Where the rules live
 
 - `src/minefield.rs` — the board: how big, where the mines are, how many touch
-  each square. Mines are placed on the **first reveal**, with that square and its
-  eight neighbours left clear, which is what makes a first click safe; the
-  placement is seeded, so the same seed and first square rebuild the same board
-  and a saved game is a handful of numbers rather than 480 mine positions.
+  each square, and the solver that vets a layout for guess-free play. Mines are
+  placed on the **first reveal**, with that square and its eight neighbours left
+  clear, which is what makes a first click safe; the placement is seeded, so the
+  same seed and first square rebuild the same board and a saved game is a handful
+  of numbers rather than 480 mine positions.
 - `src/game.rs` — one sitting: what is covered, flagged and open, the clock, how
   it ended, and **every word the page says** about any of it. Class tokens, the
   spoken name of a square and the status sentence are all built here, so the
@@ -127,12 +128,27 @@ rule set is tested natively.
   caught by playing the game in a browser — the unit tests pass a whole number of
   seconds, so no unit test could have seen it. Time is only banked while the game
   is being played.
-- **Four boards, the last one absurd.** Insane is 99x99 with 2000 mines. It is
-  drawn dense — a 1px gap, no per-square lighting, 14-22px squares — because
-  9801 bevels is a texture rather than a set of buttons, and the flag is the
-  level's own property rather than a measurement of the screen, so the same level
-  looks the same everywhere. Its board opens inside its own scroll box on both
-  axes, so the clock and the controls stay where the reader left them.
+- **Three boards, and the biggest is the one the game has always had.** Insane
+  (99x99 with 2000 mines) was dropped: at one mine in five a perfect player still
+  guesses, so the level could never honour the no-guess placement below, and its
+  placement pass was the only thing that came close to a slow first click. Expert
+  scrolls inside its own box on both axes, so the clock and the controls stay
+  where the reader left them.
+- **A board is drawn until it can be played without a guess.** Every layout is
+  checked by a solver that plays it from the first click using **only what the
+  revealed numbers prove** — the two trivial shapes, the wing rule on overlapping
+  clusters, and the mine-counter (global) deduction that settles endgames — and a
+  layout that stalls is discarded. Without that check 80% of Beginner boards end
+  in a coin toss; with it, none of them do. This is best effort rather than a
+  guarantee, deliberately: a guaranteed clean board needs the reference
+  implementation's perturbation machinery, and an occasional ambiguous end is a
+  fair price for a board that appears instantly. The budget is per level (8 for
+  Beginner and Intermediate, 30 for Expert), measured so that Beginner and
+  Intermediate come out clean and Expert misses about one board in twenty-five;
+  when the budget runs out the layout that stalled **latest** wins, so the board
+  the player gets is the one with the smallest unopenable region rather than the
+  last one drawn. A first click that opens every safe square is scored as the
+  worst stall of all, since a board that plays itself is not a board.
 - **A correct flag survives a loss.** Losing shows every mine, but a square the
   player flagged right keeps its flag: taking it away punishes the one thing they
   did correctly.
@@ -216,7 +232,7 @@ rule set is tested natively.
   square used to be fitted per level, the largest one that lets *this* board fit
   the box, so a phone drew Beginner at ~39px while every wider board sat on the
   24px floor, and picking a different board visibly resized the game. It is now
-  one size for all four boards, whatever level is loaded.
+  one size for every board, whatever level is loaded.
   - **The size is the decision, and it took three attempts.** A reference board of
     twelve squares (the midpoint of Beginner's nine and Intermediate's sixteen)
     drew everything at ~28px, too small; Beginner's own nine drew everything at

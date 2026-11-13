@@ -224,7 +224,7 @@ h1 {
 .fact:last-child { margin-left: auto; }
 .fact strong { color: var(--fg); font-weight: 600; }
 
-/* The scroll container. Expert is 30 squares wide and Insane is 99, so a board
+/* The scroll container. Expert is 30 squares wide, so a board
    that does not fit scrolls rather than shrinking to an untappable grid — and
    past a certain height it scrolls *inside* this box as well, so the tools and
    the clock stay where the reader left them instead of a page-length below the
@@ -274,7 +274,7 @@ h1 {
 /* The board. One square size, at every level.
 
    It used to be fitted per level — the largest square that lets *this* board fit
-   the box — and the result was four different games: on a phone, Beginner drew
+   the box — and the result was a different game per board: on a phone, Beginner drew
    ~39px squares while every wider board sat on the 24px floor, so changing level
    visibly resized the whole board under the reader's hand. Two boards of one
    game are the same squares. The size is now whatever a *reference* board gets,
@@ -292,7 +292,7 @@ h1 {
    as one, in both places it matters.
 
    What that costs is scrolling, not size. A board bigger than the box scrolls
-   inside it, so Intermediate, Expert and Insane scroll on a phone and Expert
+   inside it, so Intermediate and Expert scroll on a phone and Expert
    scrolls on a desktop. That is the trade the one size asks for: the reader can
    pan a board, but cannot un-see a square that changes size with the level.
 
@@ -402,7 +402,7 @@ h1 {
 /* Every square is drawn by one set of rules, at every level. There used to be a
    second look for the 99x99 board — a flat fill, a hairline gap and no bevel —
    and the result was three visually different games: Beginner and Expert got
-   raised tiles, Insane got something closer to a spreadsheet. The reason for it
+   raised tiles, the biggest board got something closer to a spreadsheet. The reason for it
    was that 9801 bevels read as woven fabric, and the right answer to that is a
    floor on the square's size (`--min-cell`), which the board already has, not a
    second style nobody asked for. */
